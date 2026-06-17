@@ -16,6 +16,8 @@ const INIT = {
 };
 
 const INIT_BATT = { cells: 4, mah: 10000, kg: 0.8 };
+const INIT_ESC = { kg: 0.037, continuousA: 35, maxA: 60, cellMin: 2, cellMax: 6 };
+const INIT_SOLAR = { on: false, kg: 0.5, watts: 0, weatherPct: 70 };
 
 const INIT_EQUIP = [
   { id: 1, name: "짐벌 카메라", kg: 0.30, w: 8, on: false },
@@ -24,10 +26,9 @@ const INIT_EQUIP = [
   { id: 4, name: "LiDAR 센서", kg: 0.25, w: 12, on: false },
   { id: 5, name: "미스트 펌프+노즐", kg: 0.50, w: 20, on: false },
   { id: 6, name: "물탱크 (1L)", kg: 1.00, w: 0, on: false },
-  { id: 7, name: "태양전지판", kg: 0.50, w: 0, on: false },
 ];
 
-function calc(p, battWh, payloadKg, extraW) {
+function calc(p, battWh, payloadKg, extraW, generatedW = 0) {
   const mT = p.motorPropKg * p.rotors;
   const eT = p.escWireKg * p.rotors;
   const tow = p.frameKg + p.elecKg + mT + eT + p.errKg + payloadKg;
@@ -36,9 +37,10 @@ function calc(p, battWh, payloadKg, extraW) {
   const T = tow * G;
   const vi = Math.sqrt(Math.max(T / (2 * RHO * A), 0.001));
   const hW = (T * vi) / Math.max(p.fm, 0.01);
-  const tW = hW + p.avW + extraW;
+  const grossW = hW + p.avW + extraW;
+  const tW = Math.max(grossW - generatedW, 1);
   const mFull = tW > 0 ? (battWh / tW) * 60 : 0;
-  return { tow, T, vi, hW, tW, battWh, mFull, m90: mFull * 0.9, mT, eT, A };
+  return { tow, T, vi, hW, grossW, generatedW, tW, battWh, mFull, m90: mFull * 0.9, mT, eT, A };
 }
 
 /* ── tiny reusable pieces ── */
@@ -120,75 +122,89 @@ const BarTooltip = ({ active, payload }) => {
 export default function App() {
   const [p, setP] = useState(INIT);
   const [batt, setBatt] = useState(INIT_BATT);
+  const [esc, setEsc] = useState(INIT_ESC);
+  const [solar, setSolar] = useState(INIT_SOLAR);
   const [equip, setEquip] = useState(INIT_EQUIP);
   const [nextId, setNextId] = useState(100);
   const [tab, setTab] = useState("curve");
+  const [motorMaker, setMotorMaker] = useState("T-MOTOR");
   const [comboId, setComboId] = useState("");
 
   const set = useCallback((k, v) => setP(prev => ({ ...prev, [k]: isNaN(v) ? prev[k] : v })), []);
   const setB = useCallback((k, v) => setBatt(prev => ({ ...prev, [k]: isNaN(v) ? prev[k] : v })), []);
+  const setE = useCallback((k, v) => setEsc(prev => ({ ...prev, [k]: isNaN(v) ? prev[k] : v })), []);
+  const setS = useCallback((k, v) => setSolar(prev => ({ ...prev, [k]: isNaN(v) ? prev[k] : v })), []);
 
   const battV = batt.cells * CELL_V;
   const battWh = battV * batt.mah / 1000;
   const battWhKg = batt.kg > 0 ? battWh / batt.kg : 0;
+  const pCalc = useMemo(() => ({ ...p, escWireKg: esc.kg }), [p, esc.kg]);
 
   const totalBattKg = batt.kg;
   const eqPayload = equip.filter(e => e.on).reduce((s, e) => s + e.kg, 0);
   const eqPower = equip.filter(e => e.on).reduce((s, e) => s + e.w, 0);
+  const solarKg = solar.on ? solar.kg : 0;
+  const solarW = solar.on ? solar.watts * (solar.weatherPct / 100) : 0;
 
   // TOW includes battery weight
-  const fullPayload = totalBattKg + eqPayload;
-  const r = useMemo(() => calc(p, battWh, fullPayload, eqPower), [p, battWh, fullPayload, eqPower]);
+  const fullPayload = totalBattKg + eqPayload + solarKg;
+  const r = useMemo(() => calc(pCalc, battWh, fullPayload, eqPower, solarW), [pCalc, battWh, fullPayload, eqPower, solarW]);
   const selectedCombo = useMemo(() => TMOTOR_COMBOS.find(c => c.id === comboId), [comboId]);
+  const motorMakers = useMemo(() => [...new Set(TMOTOR_COMBOS.map(c => c.maker))], []);
+  const makerCombos = useMemo(() => TMOTOR_COMBOS.filter(c => c.maker === motorMaker), [motorMaker]);
   const tableCalc = useMemo(() => {
     if (!selectedCombo) return null;
     const requiredThrustG = (r.tow / p.rotors) * 1000;
     const hover = interpolateByThrust(selectedCombo.test, requiredThrustG);
     if (!hover) return null;
-    const totalCurrentA = hover.currentA * p.rotors;
-    const totalPowerW = hover.powerW * p.rotors + p.avW + eqPower;
+    const motorCurrentA = hover.currentA * p.rotors;
+    const grossPowerW = hover.powerW * p.rotors + p.avW + eqPower;
+    const totalPowerW = Math.max(grossPowerW - solarW, 1);
+    const batteryCurrentA = battV > 0 ? totalPowerW / battV : 0;
     const capacityAh = batt.mah / 1000;
-    const fullMinByCurrent = totalCurrentA > 0 ? (capacityAh / totalCurrentA) * 60 : 0;
+    const fullMinByCurrent = batteryCurrentA > 0 ? (capacityAh / batteryCurrentA) * 60 : 0;
     const fullMinByPower = totalPowerW > 0 ? (battWh / totalPowerW) * 60 : 0;
     const maxThrustG = Math.max(...selectedCombo.test.map(row => row.thrustG));
     return {
       ...hover,
       requiredThrustG,
-      totalCurrentA,
+      motorCurrentA,
+      batteryCurrentA,
+      grossPowerW,
       totalPowerW,
       mFull: fullMinByPower || fullMinByCurrent,
       m90: (fullMinByPower || fullMinByCurrent) * 0.9,
       thrustMarginPct: ((maxThrustG - requiredThrustG) / Math.max(requiredThrustG, 1)) * 100,
-      escMarginPct: ((selectedCombo.maxCurrentA - hover.currentA) / Math.max(hover.currentA, 0.01)) * 100,
+      escMarginPct: ((esc.continuousA - hover.currentA) / Math.max(hover.currentA, 0.01)) * 100,
       voltageMismatch: Math.abs(battV - selectedCombo.voltage) > 1
     };
-  }, [selectedCombo, r.tow, p.rotors, p.avW, eqPower, batt.mah, battWh, battV]);
+  }, [selectedCombo, r.tow, p.rotors, p.avW, eqPower, solarW, batt.mah, battWh, battV, esc.continuousA]);
 
   // payload curve: vary equipment payload from 0 to max
   const maxPl = Math.max(5, eqPayload + 2);
   const curve = useMemo(() => {
     const pts = [];
     for (let pl = 0; pl <= maxPl; pl += 0.05) {
-      const res = calc(p, battWh, totalBattKg + pl, eqPower);
+      const res = calc(pCalc, battWh, totalBattKg + pl + solarKg, eqPower, solarW);
       pts.push({ payload: +pl.toFixed(2), time: Math.max(0, +res.m90.toFixed(1)) });
     }
     return pts;
-  }, [p, battWh, totalBattKg, eqPower, maxPl]);
+  }, [pCalc, battWh, totalBattKg, eqPower, maxPl, solarKg, solarW]);
 
   // cumulative equipment scenario
   const cumData = useMemo(() => {
     const enabled = equip.filter(e => e.on);
-    const base = calc(p, battWh, totalBattKg, 0);
+    const base = calc(pCalc, battWh, totalBattKg + solarKg, 0, solarW);
     const data = [{ name: "기본 기체", time: +base.m90.toFixed(1), tow: +base.tow.toFixed(2), power: +base.tW.toFixed(0), color: "#3b82f6" }];
     let ck = 0, cw = 0;
     const colors = ["#8b5cf6","#06b6d4","#f59e0b","#ef4444","#ec4899","#14b8a6","#f97316","#6366f1","#84cc16"];
     enabled.forEach((e, i) => {
       ck += e.kg; cw += e.w;
-      const res = calc(p, battWh, totalBattKg + ck, cw);
+      const res = calc(pCalc, battWh, totalBattKg + solarKg + ck, cw, solarW);
       data.push({ name: `+ ${e.name}`, time: +res.m90.toFixed(1), tow: +res.tow.toFixed(2), power: +res.tW.toFixed(0), color: colors[i % colors.length] });
     });
     return data;
-  }, [p, battWh, totalBattKg, equip]);
+  }, [pCalc, battWh, totalBattKg, solarKg, solarW, equip]);
 
   // equipment handlers
   const toggleEq = (id) => setEquip(prev => prev.map(e => e.id === id ? { ...e, on: !e.on } : e));
@@ -209,9 +225,18 @@ export default function App() {
       propInch: combo.propInch
     }));
     setBatt(prev => ({ ...prev, cells: combo.cells }));
+    setEsc(prev => ({ ...prev, continuousA: Math.max(prev.continuousA, combo.maxCurrentA) }));
   };
 
-  const resetAll = () => { setP(INIT); setBatt(INIT_BATT); setEquip(INIT_EQUIP); setComboId(""); };
+  const resetAll = () => {
+    setP(INIT);
+    setBatt(INIT_BATT);
+    setEsc(INIT_ESC);
+    setSolar(INIT_SOLAR);
+    setEquip(INIT_EQUIP);
+    setMotorMaker("T-MOTOR");
+    setComboId("");
+  };
 
   const tc = r.m90 > 25 ? "#10b981" : r.m90 > 15 ? "#f59e0b" : r.m90 > 8 ? "#f97316" : "#ef4444";
 
@@ -221,6 +246,7 @@ export default function App() {
     { name: "모터+프롭", val: r.mT, col: "#3b82f6" },
     { name: "ESC+배선", val: r.eT, col: "#06b6d4" },
     { name: "배터리", val: totalBattKg, col: "#f59e0b" },
+    { name: "태양전지", val: solarKg, col: "#22c55e" },
     { name: "오차", val: p.errKg, col: "#94a3b8" },
     { name: "임무장비", val: eqPayload, col: "#ef4444" },
   ];
@@ -260,12 +286,19 @@ export default function App() {
 
           <Sec title="모터 / 프로펠러" icon="⚡">
             <div style={{ marginBottom: 8 }}>
-              <span style={{ display: "block", fontSize: 12, color: "#475569", marginBottom: 4 }}>T-MOTOR 프리셋</span>
-              <select value={comboId} onChange={e => applyCombo(e.target.value)}
+              <span style={{ display: "block", fontSize: 12, color: "#475569", marginBottom: 4 }}>제조사</span>
+              <select value={motorMaker} onChange={e => { setMotorMaker(e.target.value); setComboId(""); }}
+                style={{ width: "100%", border: "1px solid #cbd5e1", borderRadius: 6, padding: "5px 6px",
+                  fontSize: 12, color: "#1e293b", background: "#f8fafc", outline: "none", marginBottom: 5 }}>
+                {motorMakers.map(maker => <option key={maker} value={maker}>{maker}</option>)}
+                <option value="custom">기타 / 직접 입력</option>
+              </select>
+              <span style={{ display: "block", fontSize: 12, color: "#475569", marginBottom: 4 }}>모터+프롭 조합</span>
+              <select value={comboId} onChange={e => applyCombo(e.target.value)} disabled={motorMaker === "custom"}
                 style={{ width: "100%", border: "1px solid #cbd5e1", borderRadius: 6, padding: "5px 6px",
                   fontSize: 12, color: "#1e293b", background: "#f8fafc", outline: "none" }}>
                 <option value="">직접 입력</option>
-                {TMOTOR_COMBOS.map(combo => (
+                {makerCombos.map(combo => (
                   <option key={combo.id} value={combo.id}>{getComboLabel(combo)}</option>
                 ))}
               </select>
@@ -277,9 +310,24 @@ export default function App() {
               )}
             </div>
             <InputRow label="모터+프롭 (개당)" unit="kg" value={p.motorPropKg} onChange={v => set("motorPropKg", v)} max={2} />
-            <InputRow label="ESC+배선 (개당)" unit="kg" value={p.escWireKg} onChange={v => set("escWireKg", v)} max={1} />
             <InputRow label="프롭 직경" unit="inch" value={p.propInch} onChange={v => set("propInch", v)} min={3} max={30} step={0.1} />
             <InputRow label="Figure of Merit" unit="" value={p.fm} onChange={v => set("fm", v)} min={0.1} max={0.8} step={0.01} />
+          </Sec>
+
+          <Sec title="ESC / 배선" icon="▣">
+            <InputRow label="ESC+배선 (개당)" unit="kg" value={esc.kg} onChange={v => setE("kg", v)} max={1} />
+            <InputRow label="연속 전류" unit="A" value={esc.continuousA} onChange={v => setE("continuousA", v)} max={300} step={1} />
+            <InputRow label="최대 전류" unit="A" value={esc.maxA} onChange={v => setE("maxA", v)} max={500} step={1} />
+            <div style={{ display: "flex", gap: 6 }}>
+              <InputRow label="지원 셀 최소" unit="S" value={esc.cellMin} onChange={v => setE("cellMin", Math.round(v))} min={1} max={24} step={1} width={80} />
+              <InputRow label="최대" unit="S" value={esc.cellMax} onChange={v => setE("cellMax", Math.round(v))} min={1} max={24} step={1} width={36} />
+            </div>
+            <div style={{ background: "#f8fafc", borderRadius: 6, padding: "6px 8px", marginTop: 2, fontSize: 11, color: "#475569", lineHeight: 1.6 }}>
+              전체 ESC+배선 무게: <b>{(esc.kg * p.rotors).toFixed(3)} kg</b>
+              {batt.cells < esc.cellMin || batt.cells > esc.cellMax
+                ? <span style={{ color: "#dc2626", fontWeight: 700 }}> · 배터리 셀 수 확인 필요</span>
+                : <span> · 셀 수 적합</span>}
+            </div>
           </Sec>
 
           <Sec title="배터리 (LiPo)" icon="🔋">
@@ -295,6 +343,22 @@ export default function App() {
 
           <Sec title="비행 조건" icon="🌤️" open={false}>
             <InputRow label="기본 전자장비 전력" unit="W" value={p.avW} onChange={v => set("avW", v)} max={200} step={1} />
+          </Sec>
+
+          <Sec title="발전 옵션" icon="☀️" open={false}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 7, fontSize: 12, color: "#475569", cursor: "pointer" }}>
+              <input type="checkbox" checked={solar.on} onChange={e => setSolar(prev => ({ ...prev, on: e.target.checked }))}
+                style={{ accentColor: "#22c55e", width: 15, height: 15 }} />
+              태양전지 발전 반영
+            </label>
+            <InputRow label="패널 무게" unit="kg" value={solar.kg} onChange={v => setS("kg", v)} max={10} />
+            <InputRow label="정격 발전량" unit="W" value={solar.watts} onChange={v => setS("watts", v)} max={1000} step={1} />
+            <InputRow label="기상/효율 계수" unit="%" value={solar.weatherPct} onChange={v => setS("weatherPct", v)} min={0} max={100} step={5} />
+            <div style={{ background: solar.on ? "#f0fdf4" : "#f8fafc", borderRadius: 6, padding: "6px 8px", marginTop: 2,
+              fontSize: 11, color: solar.on ? "#166534" : "#64748b", lineHeight: 1.6 }}>
+              유효 발전량: <b>{solarW.toFixed(0)} W</b>
+              {solar.on && <span> · 순소비전력에서 차감</span>}
+            </div>
           </Sec>
 
           {/* ── 임무장비 ── */}
@@ -359,7 +423,7 @@ export default function App() {
           </div>
 
           <div style={{ display: "flex", gap: 8 }}>
-            <SmallCard label="호버 전력 (전체)" value={r.tW} unit="W" />
+            <SmallCard label="순소비전력" value={r.tW} unit="W" />
             <SmallCard label="배터리 에너지" value={r.battWh} unit="Wh" />
             <SmallCard label={`로터당 추력 (×${p.rotors})`} value={r.tow / p.rotors} unit="kgf" />
             <SmallCard label="전력 하중비" value={r.tW / Math.max(r.tow, 0.01)} unit="W/kg" />
@@ -383,8 +447,9 @@ export default function App() {
               </div>
               <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 8, fontSize: 11, color: "#475569" }}>
                 <span>요구 추력 <b>{(tableCalc.requiredThrustG / 1000).toFixed(2)} kgf/rotor</b></span>
-                <span>총 전류 <b>{tableCalc.totalCurrentA.toFixed(1)} A</b></span>
-                <span>총 전력 <b>{tableCalc.totalPowerW.toFixed(0)} W</b></span>
+                <span>모터 총전류 <b>{tableCalc.motorCurrentA.toFixed(1)} A</b></span>
+                <span>배터리 전류 <b>{tableCalc.batteryCurrentA.toFixed(1)} A</b></span>
+                <span>순소비전력 <b>{tableCalc.totalPowerW.toFixed(0)} W</b></span>
                 <span>ESC 여유 <b>{tableCalc.escMarginPct.toFixed(0)}%</b></span>
                 {tableCalc.limited === "high" && <span style={{ color: "#dc2626", fontWeight: 700 }}>요구 추력이 표 최대값을 넘습니다</span>}
                 {tableCalc.voltageMismatch && <span style={{ color: "#b45309", fontWeight: 700 }}>배터리 전압과 추력표 전압이 다릅니다</span>}
