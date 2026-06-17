@@ -1,0 +1,43 @@
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: #f1f5f9;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+@media (max-width: 860px) {
+  body > #root > div > div:nth-child(2) {
+    flex-direction: column;
+  }
+
+  body > #root > div > div:nth-child(2) > div:first-child {
+    width: 100% !important;
+  }
+}
+
+@media (max-width: 640px) {
+  body > #root > div > div:first-child {
+    align-items: flex-start !important;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  body > #root > div > div:nth-child(2) {
+    padding: 8px !important;
+  }
+
+  body > #root > div > div:nth-child(2) > div:nth-child(2) > div:first-child,
+  body > #root > div > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) {
+    flex-direction: column;
+  }
+}
