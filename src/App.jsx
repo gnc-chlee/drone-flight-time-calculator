@@ -3,6 +3,7 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine, Cell, LabelList
 } from "recharts";
+import { TMOTOR_COMBOS, getComboLabel, interpolateByThrust } from "./data/tmotorMultirotorMotors";
 
 const G = 9.81;
 const RHO = 1.225;
@@ -122,6 +123,7 @@ export default function App() {
   const [equip, setEquip] = useState(INIT_EQUIP);
   const [nextId, setNextId] = useState(100);
   const [tab, setTab] = useState("curve");
+  const [comboId, setComboId] = useState("");
 
   const set = useCallback((k, v) => setP(prev => ({ ...prev, [k]: isNaN(v) ? prev[k] : v })), []);
   const setB = useCallback((k, v) => setBatt(prev => ({ ...prev, [k]: isNaN(v) ? prev[k] : v })), []);
@@ -137,6 +139,30 @@ export default function App() {
   // TOW includes battery weight
   const fullPayload = totalBattKg + eqPayload;
   const r = useMemo(() => calc(p, battWh, fullPayload, eqPower), [p, battWh, fullPayload, eqPower]);
+  const selectedCombo = useMemo(() => TMOTOR_COMBOS.find(c => c.id === comboId), [comboId]);
+  const tableCalc = useMemo(() => {
+    if (!selectedCombo) return null;
+    const requiredThrustG = (r.tow / p.rotors) * 1000;
+    const hover = interpolateByThrust(selectedCombo.test, requiredThrustG);
+    if (!hover) return null;
+    const totalCurrentA = hover.currentA * p.rotors;
+    const totalPowerW = hover.powerW * p.rotors + p.avW + eqPower;
+    const capacityAh = batt.mah / 1000;
+    const fullMinByCurrent = totalCurrentA > 0 ? (capacityAh / totalCurrentA) * 60 : 0;
+    const fullMinByPower = totalPowerW > 0 ? (battWh / totalPowerW) * 60 : 0;
+    const maxThrustG = Math.max(...selectedCombo.test.map(row => row.thrustG));
+    return {
+      ...hover,
+      requiredThrustG,
+      totalCurrentA,
+      totalPowerW,
+      mFull: fullMinByPower || fullMinByCurrent,
+      m90: (fullMinByPower || fullMinByCurrent) * 0.9,
+      thrustMarginPct: ((maxThrustG - requiredThrustG) / Math.max(requiredThrustG, 1)) * 100,
+      escMarginPct: ((selectedCombo.maxCurrentA - hover.currentA) / Math.max(hover.currentA, 0.01)) * 100,
+      voltageMismatch: Math.abs(battV - selectedCombo.voltage) > 1
+    };
+  }, [selectedCombo, r.tow, p.rotors, p.avW, eqPower, batt.mah, battWh, battV]);
 
   // payload curve: vary equipment payload from 0 to max
   const maxPl = Math.max(5, eqPayload + 2);
@@ -173,7 +199,19 @@ export default function App() {
     setNextId(n => n + 1);
   };
 
-  const resetAll = () => { setP(INIT); setBatt(INIT_BATT); setEquip(INIT_EQUIP); };
+  const applyCombo = (id) => {
+    setComboId(id);
+    const combo = TMOTOR_COMBOS.find(c => c.id === id);
+    if (!combo) return;
+    setP(prev => ({
+      ...prev,
+      motorPropKg: +(combo.motorWeightKg + combo.propWeightKg).toFixed(3),
+      propInch: combo.propInch
+    }));
+    setBatt(prev => ({ ...prev, cells: combo.cells }));
+  };
+
+  const resetAll = () => { setP(INIT); setBatt(INIT_BATT); setEquip(INIT_EQUIP); setComboId(""); };
 
   const tc = r.m90 > 25 ? "#10b981" : r.m90 > 15 ? "#f59e0b" : r.m90 > 8 ? "#f97316" : "#ef4444";
 
@@ -221,6 +259,23 @@ export default function App() {
           </Sec>
 
           <Sec title="모터 / 프로펠러" icon="⚡">
+            <div style={{ marginBottom: 8 }}>
+              <span style={{ display: "block", fontSize: 12, color: "#475569", marginBottom: 4 }}>T-MOTOR 프리셋</span>
+              <select value={comboId} onChange={e => applyCombo(e.target.value)}
+                style={{ width: "100%", border: "1px solid #cbd5e1", borderRadius: 6, padding: "5px 6px",
+                  fontSize: 12, color: "#1e293b", background: "#f8fafc", outline: "none" }}>
+                <option value="">직접 입력</option>
+                {TMOTOR_COMBOS.map(combo => (
+                  <option key={combo.id} value={combo.id}>{getComboLabel(combo)}</option>
+                ))}
+              </select>
+              {selectedCombo && (
+                <div style={{ fontSize: 10, color: "#64748b", lineHeight: 1.5, marginTop: 4 }}>
+                  모터 {selectedCombo.motorWeightKg.toFixed(3)}kg/개 자동 반영
+                  {selectedCombo.propWeightKg === 0 && <span> · 프롭 무게는 별도 확인 필요</span>}
+                </div>
+              )}
+            </div>
             <InputRow label="모터+프롭 (개당)" unit="kg" value={p.motorPropKg} onChange={v => set("motorPropKg", v)} max={2} />
             <InputRow label="ESC+배선 (개당)" unit="kg" value={p.escWireKg} onChange={v => set("escWireKg", v)} max={1} />
             <InputRow label="프롭 직경" unit="inch" value={p.propInch} onChange={v => set("propInch", v)} min={3} max={30} step={0.1} />
@@ -309,6 +364,33 @@ export default function App() {
             <SmallCard label={`로터당 추력 (×${p.rotors})`} value={r.tow / p.rotors} unit="kgf" />
             <SmallCard label="전력 하중비" value={r.tW / Math.max(r.tow, 0.01)} unit="W/kg" />
           </div>
+
+          {selectedCombo && tableCalc && (
+            <div style={{ background: "white", borderRadius: 10, border: "1px solid #dbeafe", padding: "10px 14px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1e3a8a" }}>제조사 추력표 기준</div>
+                  <div style={{ fontSize: 10, color: "#64748b" }}>{getComboLabel(selectedCombo)}</div>
+                </div>
+                <a href={selectedCombo.sourceUrl} target="_blank" rel="noreferrer"
+                  style={{ fontSize: 10, color: "#2563eb", textDecoration: "none", whiteSpace: "nowrap" }}>T-MOTOR 자료</a>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
+                <SmallCard label="추력표 비행시간 (90%)" value={tableCalc.m90} unit="분" />
+                <SmallCard label="예상 스로틀" value={tableCalc.throttle} unit="%" />
+                <SmallCard label="로터당 전류" value={tableCalc.currentA} unit="A" />
+                <SmallCard label="추력 여유" value={tableCalc.thrustMarginPct} unit="%" />
+              </div>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 8, fontSize: 11, color: "#475569" }}>
+                <span>요구 추력 <b>{(tableCalc.requiredThrustG / 1000).toFixed(2)} kgf/rotor</b></span>
+                <span>총 전류 <b>{tableCalc.totalCurrentA.toFixed(1)} A</b></span>
+                <span>총 전력 <b>{tableCalc.totalPowerW.toFixed(0)} W</b></span>
+                <span>ESC 여유 <b>{tableCalc.escMarginPct.toFixed(0)}%</b></span>
+                {tableCalc.limited === "high" && <span style={{ color: "#dc2626", fontWeight: 700 }}>요구 추력이 표 최대값을 넘습니다</span>}
+                {tableCalc.voltageMismatch && <span style={{ color: "#b45309", fontWeight: 700 }}>배터리 전압과 추력표 전압이 다릅니다</span>}
+              </div>
+            </div>
+          )}
 
           {/* weight bar */}
           <div style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0", padding: "8px 14px" }}>
