@@ -391,9 +391,18 @@ export default function App() {
             <InputRow label="ESC+배선 (개당)" unit="kg" value={esc.kg} onChange={v => setE("kg", v)} max={1} />
             <InputRow label="연속 전류" unit="A" value={esc.continuousA} onChange={v => setE("continuousA", v)} max={300} step={1} />
             <InputRow label="최대 전류" unit="A" value={esc.maxA} onChange={v => setE("maxA", v)} max={500} step={1} />
-            <div style={{ display: "flex", gap: 6 }}>
-              <InputRow label="지원 셀 최소" unit="S" value={esc.cellMin} onChange={v => setE("cellMin", Math.round(v))} min={1} max={24} step={1} width={80} />
-              <InputRow label="최대" unit="S" value={esc.cellMax} onChange={v => setE("cellMax", Math.round(v))} min={1} max={24} step={1} width={36} />
+            <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 16px 1fr 16px", alignItems: "center", gap: 6, marginBottom: 5 }}>
+              <span style={{ fontSize: 12, color: "#475569" }}>지원 셀</span>
+              <input type="number" value={esc.cellMin} min={1} max={24} step={1}
+                onChange={e => setE("cellMin", Math.round(+e.target.value))}
+                style={{ width: "100%", minWidth: 0, padding: "4px 6px", border: "1px solid #cbd5e1", borderRadius: 6,
+                  fontSize: 13, textAlign: "right", outline: "none", background: "#f8fafc" }} />
+              <span style={{ fontSize: 11, color: "#94a3b8" }}>S</span>
+              <input type="number" value={esc.cellMax} min={1} max={24} step={1}
+                onChange={e => setE("cellMax", Math.round(+e.target.value))}
+                style={{ width: "100%", minWidth: 0, padding: "4px 6px", border: "1px solid #cbd5e1", borderRadius: 6,
+                  fontSize: 13, textAlign: "right", outline: "none", background: "#f8fafc" }} />
+              <span style={{ fontSize: 11, color: "#94a3b8" }}>S</span>
             </div>
             <div style={{ background: "#f8fafc", borderRadius: 6, padding: "6px 8px", marginTop: 2, fontSize: 11, color: "#475569", lineHeight: 1.6 }}>
               전체 ESC+배선 무게: <b>{(esc.kg * p.rotors).toFixed(3)} kg</b>
