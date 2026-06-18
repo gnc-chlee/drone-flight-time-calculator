@@ -7,7 +7,7 @@
 ## 주요 기능
 
 - 기체 중량, 로터 수, 배터리 용량, 페이로드 기반 비행시간 추정
-- T-MOTOR 멀티콥터용 모터/프로펠러 추력표 프리셋
+- CSV 기반 모터/프로펠러 추력표 프리셋
 - 제조사 추력표 기반 throttle, current, power 선형 보간
 - ESC 무게 및 전류 여유율 계산
 - 태양전지 발전 옵션 반영
@@ -60,13 +60,25 @@ git push
 
 ## 데이터
 
-모터/프로펠러 프리셋 데이터는 아래 파일에서 관리합니다.
+모터/프로펠러 프리셋 데이터는 CSV 파일에서 관리합니다.
 
 ```text
-src/data/tmotorMultirotorMotors.js
+public/data/motor-presets.csv
 ```
 
-현재는 T-MOTOR 공식 제품 페이지의 테스트 데이터를 기반으로 일부 조합만 포함되어 있습니다. 추후 SunnySky, KDE, DJI 등 다른 제조사 데이터와 실제 비행 로그 기반 보정값을 추가할 예정입니다.
+CSV 작성 템플릿:
+
+```text
+public/data/custom-motor-template.csv
+```
+
+CSV 작성 가이드:
+
+```text
+docs/motor-csv-guide.md
+```
+
+현재는 T-MOTOR 공식 제품 페이지의 테스트 데이터를 기반으로 일부 조합만 포함되어 있습니다. CSV에 행을 추가하면 코드 수정 없이 SunnySky, KDE, DJI 등 다른 제조사 데이터도 확장할 수 있습니다.
 
 ## 라이선스
 

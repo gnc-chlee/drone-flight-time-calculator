@@ -1,0 +1,29 @@
+id,maker,motor,kv,cells,voltage,prop,prop_inch,motor_weight_g,prop_weight_g,max_current_a,throttle,current_a,power_w,thrust_g,rpm,source_url,note
+tmotor-u3-kv700-4s-12x4,T-MOTOR,U3,700,4,14.8,12*4CF,12,128,0,25,50,3.8,56.24,580,5000,https://store.tmotor.com/product/u3-motor-u-power.html,Prop weight not listed on the motor page.
+tmotor-u3-kv700-4s-12x4,T-MOTOR,U3,700,4,14.8,12*4CF,12,128,0,25,65,7.4,109.52,880,6300,https://store.tmotor.com/product/u3-motor-u-power.html,Prop weight not listed on the motor page.
+tmotor-u3-kv700-4s-12x4,T-MOTOR,U3,700,4,14.8,12*4CF,12,128,0,25,75,10.3,152.44,1100,7300,https://store.tmotor.com/product/u3-motor-u-power.html,Prop weight not listed on the motor page.
+tmotor-u3-kv700-4s-12x4,T-MOTOR,U3,700,4,14.8,12*4CF,12,128,0,25,85,14.0,207.2,1360,7700,https://store.tmotor.com/product/u3-motor-u-power.html,Prop weight not listed on the motor page.
+tmotor-u3-kv700-4s-12x4,T-MOTOR,U3,700,4,14.8,12*4CF,12,128,0,25,100,16.8,248.64,1600,8300,https://store.tmotor.com/product/u3-motor-u-power.html,Prop weight not listed on the motor page.
+tmotor-u3-kv700-4s-13x44,T-MOTOR,U3,700,4,14.8,13*4.4CF,13,128,0,25,50,4.7,69.56,730,4900,https://store.tmotor.com/product/u3-motor-u-power.html,Prop weight not listed on the motor page.
+tmotor-u3-kv700-4s-13x44,T-MOTOR,U3,700,4,14.8,13*4.4CF,13,128,0,25,65,9.0,133.2,1120,6100,https://store.tmotor.com/product/u3-motor-u-power.html,Prop weight not listed on the motor page.
+tmotor-u3-kv700-4s-13x44,T-MOTOR,U3,700,4,14.8,13*4.4CF,13,128,0,25,75,12.3,182.04,1400,6800,https://store.tmotor.com/product/u3-motor-u-power.html,Prop weight not listed on the motor page.
+tmotor-u3-kv700-4s-13x44,T-MOTOR,U3,700,4,14.8,13*4.4CF,13,128,0,25,85,16.0,236.8,1600,7400,https://store.tmotor.com/product/u3-motor-u-power.html,Prop weight not listed on the motor page.
+tmotor-u3-kv700-4s-13x44,T-MOTOR,U3,700,4,14.8,13*4.4CF,13,128,0,25,100,19.4,287.12,1800,7850,https://store.tmotor.com/product/u3-motor-u-power.html,Prop weight not listed on the motor page.
+tmotor-u5-kv400-6s-15x5,T-MOTOR,U5,400,6,22.2,15*5CF,15,195,0,30,50,4.3,95.46,990,4200,https://store.tmotor.com/product/u-power-u5.html,Prop weight not listed on the motor page.
+tmotor-u5-kv400-6s-15x5,T-MOTOR,U5,400,6,22.2,15*5CF,15,195,0,30,65,7.9,175.38,1490,5200,https://store.tmotor.com/product/u-power-u5.html,Prop weight not listed on the motor page.
+tmotor-u5-kv400-6s-15x5,T-MOTOR,U5,400,6,22.2,15*5CF,15,195,0,30,75,11.6,257.52,1900,5700,https://store.tmotor.com/product/u-power-u5.html,Prop weight not listed on the motor page.
+tmotor-u5-kv400-6s-15x5,T-MOTOR,U5,400,6,22.2,15*5CF,15,195,0,30,85,14.5,321.9,2220,6200,https://store.tmotor.com/product/u-power-u5.html,Prop weight not listed on the motor page.
+tmotor-u5-kv400-6s-15x5,T-MOTOR,U5,400,6,22.2,15*5CF,15,195,0,30,100,17.2,381.84,2480,6500,https://store.tmotor.com/product/u-power-u5.html,Prop weight not listed on the motor page.
+tmotor-u5-kv400-6s-16x54,T-MOTOR,U5,400,6,22.2,16*5.4CF,16,195,0,30,50,5.2,115.44,1200,4050,https://store.tmotor.com/product/u-power-u5.html,Prop weight not listed on the motor page.
+tmotor-u5-kv400-6s-16x54,T-MOTOR,U5,400,6,22.2,16*5.4CF,16,195,0,30,65,9.4,208.68,1750,4850,https://store.tmotor.com/product/u-power-u5.html,Prop weight not listed on the motor page.
+tmotor-u5-kv400-6s-16x54,T-MOTOR,U5,400,6,22.2,16*5.4CF,16,195,0,30,75,13.0,288.6,2120,5400,https://store.tmotor.com/product/u-power-u5.html,Prop weight not listed on the motor page.
+tmotor-u5-kv400-6s-16x54,T-MOTOR,U5,400,6,22.2,16*5.4CF,16,195,0,30,85,16.9,375.18,2650,5850,https://store.tmotor.com/product/u-power-u5.html,Prop weight not listed on the motor page.
+tmotor-u5-kv400-6s-16x54,T-MOTOR,U5,400,6,22.2,16*5.4CF,16,195,0,30,100,20.0,444.0,2850,6250,https://store.tmotor.com/product/u-power-u5.html,Prop weight not listed on the motor page.
+tmotor-mn5008-kv400-6s-p16x54,T-MOTOR,MN5008,400,6,22.2,P16*5.4 CF,16,132,0,35,40,3.22,76,803,3429,https://store.tmotor.com/cn/product/mn5008-kv170-motor-antigravity-type.html,Prop weight not listed on the motor page.
+tmotor-mn5008-kv400-6s-p16x54,T-MOTOR,MN5008,400,6,22.2,P16*5.4 CF,16,132,0,35,45,4.46,104,1021,3874,https://store.tmotor.com/cn/product/mn5008-kv170-motor-antigravity-type.html,Prop weight not listed on the motor page.
+tmotor-mn5008-kv400-6s-p16x54,T-MOTOR,MN5008,400,6,22.2,P16*5.4 CF,16,132,0,35,50,5.93,138,1259,4303,https://store.tmotor.com/cn/product/mn5008-kv170-motor-antigravity-type.html,Prop weight not listed on the motor page.
+tmotor-mn5008-kv400-6s-p16x54,T-MOTOR,MN5008,400,6,22.2,P16*5.4 CF,16,132,0,35,60,9.28,216,1722,5016,https://store.tmotor.com/cn/product/mn5008-kv170-motor-antigravity-type.html,Prop weight not listed on the motor page.
+tmotor-mn5008-kv400-6s-p16x54,T-MOTOR,MN5008,400,6,22.2,P16*5.4 CF,16,132,0,35,70,13.16,304,2185,5645,https://store.tmotor.com/cn/product/mn5008-kv170-motor-antigravity-type.html,Prop weight not listed on the motor page.
+tmotor-mn5008-kv400-6s-p16x54,T-MOTOR,MN5008,400,6,22.2,P16*5.4 CF,16,132,0,35,80,18.53,425,2750,6293,https://store.tmotor.com/cn/product/mn5008-kv170-motor-antigravity-type.html,Prop weight not listed on the motor page.
+tmotor-mn5008-kv400-6s-p16x54,T-MOTOR,MN5008,400,6,22.2,P16*5.4 CF,16,132,0,35,90,24.84,566,3323,6896,https://store.tmotor.com/cn/product/mn5008-kv170-motor-antigravity-type.html,Prop weight not listed on the motor page.
+tmotor-mn5008-kv400-6s-p16x54,T-MOTOR,MN5008,400,6,22.2,P16*5.4 CF,16,132,0,35,100,28.16,638,3591,7165,https://store.tmotor.com/cn/product/mn5008-kv170-motor-antigravity-type.html,Prop weight not listed on the motor page.

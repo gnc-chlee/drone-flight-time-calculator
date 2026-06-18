@@ -3,7 +3,7 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine, Cell, LabelList
 } from "recharts";
-import { TMOTOR_COMBOS, getComboLabel, interpolateByThrust } from "./data/tmotorMultirotorMotors";
+import { getComboLabel, interpolateByThrust, loadMotorPresetCsv } from "./data/motorData";
 
 const G = 9.81;
 const RHO = 1.225;
@@ -128,7 +128,9 @@ export default function App() {
   const [equip, setEquip] = useState(INIT_EQUIP);
   const [nextId, setNextId] = useState(100);
   const [tab, setTab] = useState("curve");
-  const [motorMaker, setMotorMaker] = useState("T-MOTOR");
+  const [motorCombos, setMotorCombos] = useState([]);
+  const [motorDataError, setMotorDataError] = useState("");
+  const [motorMaker, setMotorMaker] = useState("");
   const [comboId, setComboId] = useState("");
   const [logName, setLogName] = useState("");
   const [measuredMin, setMeasuredMin] = useState("");
@@ -161,9 +163,9 @@ export default function App() {
   // TOW includes battery weight
   const fullPayload = totalBattKg + eqPayload + solarKg;
   const r = useMemo(() => calc(pCalc, battWh, fullPayload, eqPower, solarW), [pCalc, battWh, fullPayload, eqPower, solarW]);
-  const selectedCombo = useMemo(() => TMOTOR_COMBOS.find(c => c.id === comboId), [comboId]);
-  const motorMakers = useMemo(() => [...new Set(TMOTOR_COMBOS.map(c => c.maker))], []);
-  const makerCombos = useMemo(() => TMOTOR_COMBOS.filter(c => c.maker === motorMaker), [motorMaker]);
+  const selectedCombo = useMemo(() => motorCombos.find(c => c.id === comboId), [motorCombos, comboId]);
+  const motorMakers = useMemo(() => [...new Set(motorCombos.map(c => c.maker))], [motorCombos]);
+  const makerCombos = useMemo(() => motorCombos.filter(c => c.maker === motorMaker), [motorCombos, motorMaker]);
   const tableCalc = useMemo(() => {
     if (!selectedCombo) return null;
     const requiredThrustG = (r.tow / p.rotors) * 1000;
@@ -204,6 +206,22 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(flightLogs));
   }, [flightLogs]);
+
+  useEffect(() => {
+    let alive = true;
+    loadMotorPresetCsv()
+      .then(combos => {
+        if (!alive) return;
+        setMotorCombos(combos);
+        setMotorMaker(combos[0]?.maker || "");
+        setMotorDataError("");
+      })
+      .catch(error => {
+        if (!alive) return;
+        setMotorDataError(error.message);
+      });
+    return () => { alive = false; };
+  }, []);
 
   // payload curve: vary equipment payload from 0 to max
   const maxPl = Math.max(5, eqPayload + 2);
@@ -260,7 +278,7 @@ export default function App() {
 
   const applyCombo = (id) => {
     setComboId(id);
-    const combo = TMOTOR_COMBOS.find(c => c.id === id);
+    const combo = motorCombos.find(c => c.id === id);
     if (!combo) return;
     setP(prev => ({
       ...prev,
@@ -277,7 +295,7 @@ export default function App() {
     setEsc(INIT_ESC);
     setSolar(INIT_SOLAR);
     setEquip(INIT_EQUIP);
-    setMotorMaker("T-MOTOR");
+    setMotorMaker(motorCombos[0]?.maker || "");
     setComboId("");
   };
 
@@ -334,6 +352,7 @@ export default function App() {
               <select value={motorMaker} onChange={e => { setMotorMaker(e.target.value); setComboId(""); }}
                 style={{ width: "100%", border: "1px solid #cbd5e1", borderRadius: 6, padding: "5px 6px",
                   fontSize: 12, color: "#1e293b", background: "#f8fafc", outline: "none", marginBottom: 5 }}>
+                {!motorMakers.length && <option value="">CSV 로딩 중</option>}
                 {motorMakers.map(maker => <option key={maker} value={maker}>{maker}</option>)}
                 <option value="custom">기타 / 직접 입력</option>
               </select>
@@ -346,6 +365,16 @@ export default function App() {
                   <option key={combo.id} value={combo.id}>{getComboLabel(combo)}</option>
                 ))}
               </select>
+              {motorDataError && (
+                <div style={{ fontSize: 10, color: "#dc2626", lineHeight: 1.5, marginTop: 4 }}>
+                  CSV 데이터를 불러오지 못했습니다: {motorDataError}
+                </div>
+              )}
+              {!motorDataError && motorCombos.length > 0 && (
+                <div style={{ fontSize: 10, color: "#94a3b8", lineHeight: 1.5, marginTop: 4 }}>
+                  CSV 프리셋 {motorCombos.length}개 로드됨
+                </div>
+              )}
               {selectedCombo && (
                 <div style={{ fontSize: 10, color: "#64748b", lineHeight: 1.5, marginTop: 4 }}>
                   모터 {selectedCombo.motorWeightKg.toFixed(3)}kg/개 자동 반영
