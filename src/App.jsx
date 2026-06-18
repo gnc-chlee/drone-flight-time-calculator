@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine, Cell, LabelList
@@ -18,6 +18,7 @@ const INIT = {
 const INIT_BATT = { cells: 4, mah: 10000, kg: 0.8 };
 const INIT_ESC = { kg: 0.037, continuousA: 35, maxA: 60, cellMin: 2, cellMax: 6 };
 const INIT_SOLAR = { on: false, kg: 0.5, watts: 0, weatherPct: 70 };
+const LOG_STORAGE_KEY = "drone-flight-test-logs-v1";
 
 const INIT_EQUIP = [
   { id: 1, name: "짐벌 카메라", kg: 0.30, w: 8, on: false },
@@ -129,6 +130,17 @@ export default function App() {
   const [tab, setTab] = useState("curve");
   const [motorMaker, setMotorMaker] = useState("T-MOTOR");
   const [comboId, setComboId] = useState("");
+  const [logName, setLogName] = useState("");
+  const [measuredMin, setMeasuredMin] = useState("");
+  const [applyCalibration, setApplyCalibration] = useState(false);
+  const [flightLogs, setFlightLogs] = useState(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      return JSON.parse(window.localStorage.getItem(LOG_STORAGE_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  });
 
   const set = useCallback((k, v) => setP(prev => ({ ...prev, [k]: isNaN(v) ? prev[k] : v })), []);
   const setB = useCallback((k, v) => setBatt(prev => ({ ...prev, [k]: isNaN(v) ? prev[k] : v })), []);
@@ -179,6 +191,19 @@ export default function App() {
       voltageMismatch: Math.abs(battV - selectedCombo.voltage) > 1
     };
   }, [selectedCombo, r.tow, p.rotors, p.avW, eqPower, solarW, batt.mah, battWh, battV, esc.continuousA]);
+  const estimate90 = tableCalc?.m90 || r.m90;
+  const calibrationFactor = useMemo(() => {
+    const ratios = flightLogs
+      .filter(log => log.measuredMin > 0 && log.estimatedMin > 0)
+      .map(log => log.measuredMin / log.estimatedMin);
+    if (!ratios.length) return 1;
+    return ratios.reduce((sum, ratio) => sum + ratio, 0) / ratios.length;
+  }, [flightLogs]);
+  const calibrated90 = estimate90 * calibrationFactor;
+
+  useEffect(() => {
+    window.localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(flightLogs));
+  }, [flightLogs]);
 
   // payload curve: vary equipment payload from 0 to max
   const maxPl = Math.max(5, eqPayload + 2);
@@ -214,6 +239,24 @@ export default function App() {
     setEquip(prev => [...prev, { id: nextId, name: "", kg: 0, w: 0, on: true }]);
     setNextId(n => n + 1);
   };
+  const addFlightLog = () => {
+    const measured = Number(measuredMin);
+    if (!measured || measured <= 0) return;
+    const entry = {
+      id: Date.now(),
+      name: logName.trim() || `Test ${flightLogs.length + 1}`,
+      measuredMin: measured,
+      estimatedMin: +estimate90.toFixed(2),
+      towKg: +r.tow.toFixed(3),
+      battery: `${batt.cells}S ${(batt.mah / 1000).toFixed(1)}Ah`,
+      combo: selectedCombo ? getComboLabel(selectedCombo) : "직접 입력",
+      createdAt: new Date().toISOString()
+    };
+    setFlightLogs(prev => [entry, ...prev].slice(0, 12));
+    setMeasuredMin("");
+    setLogName("");
+  };
+  const removeFlightLog = (id) => setFlightLogs(prev => prev.filter(log => log.id !== id));
 
   const applyCombo = (id) => {
     setComboId(id);
@@ -238,7 +281,8 @@ export default function App() {
     setComboId("");
   };
 
-  const tc = r.m90 > 25 ? "#10b981" : r.m90 > 15 ? "#f59e0b" : r.m90 > 8 ? "#f97316" : "#ef4444";
+  const shown90 = applyCalibration && flightLogs.length ? calibrated90 : estimate90;
+  const tc = shown90 > 25 ? "#10b981" : shown90 > 15 ? "#f59e0b" : shown90 > 8 ? "#f97316" : "#ef4444";
 
   const weights = [
     { name: "프레임", val: p.frameKg, col: "#64748b" },
@@ -416,8 +460,9 @@ export default function App() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
           {/* big numbers */}
           <div style={{ display: "flex", gap: 10 }}>
-            <BigNum label="예상 비행시간 (90%)" value={r.m90.toFixed(1)} unit="분" color={tc} border
-              sub={`100% 용량: ${r.mFull.toFixed(1)}분`} />
+            <BigNum label={applyCalibration && flightLogs.length ? "보정 비행시간 (90%)" : "예상 비행시간 (90%)"}
+              value={shown90.toFixed(1)} unit="분" color={tc} border
+              sub={`${tableCalc ? "추력표" : "물리식"} 기준: ${estimate90.toFixed(1)}분 · 100%: ${(shown90 / 0.9).toFixed(1)}분`} />
             <BigNum label="이륙중량 (TOW)" value={towDisplay.toFixed(2)} unit="kg" color="#1e293b" border
               sub={`임무장비: ${eqPayload.toFixed(2)}kg 포함`} />
           </div>
@@ -456,6 +501,56 @@ export default function App() {
               </div>
             </div>
           )}
+
+          <div style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0", padding: "10px 14px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#334155" }}>실측 보정</div>
+                <div style={{ fontSize: 10, color: "#94a3b8" }}>
+                  평균 보정계수 {calibrationFactor.toFixed(2)}× · 기록 {flightLogs.length}개
+                </div>
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#475569", whiteSpace: "nowrap", cursor: "pointer" }}>
+                <input type="checkbox" checked={applyCalibration} onChange={e => setApplyCalibration(e.target.checked)}
+                  disabled={!flightLogs.length} style={{ accentColor: "#0f766e", width: 14, height: 14 }} />
+                보정 적용
+              </label>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 92px 72px", gap: 6, alignItems: "center", marginBottom: 8 }}>
+              <input type="text" value={logName} placeholder="테스트명"
+                onChange={e => setLogName(e.target.value)}
+                style={{ minWidth: 0, border: "1px solid #cbd5e1", borderRadius: 6, padding: "5px 7px", fontSize: 12, outline: "none", background: "#f8fafc" }} />
+              <input type="number" value={measuredMin} placeholder="실측 분"
+                onChange={e => setMeasuredMin(e.target.value)}
+                style={{ border: "1px solid #cbd5e1", borderRadius: 6, padding: "5px 7px", fontSize: 12, textAlign: "right", outline: "none", background: "#f8fafc" }} />
+              <button onClick={addFlightLog}
+                style={{ background: "#0f766e", color: "white", border: "none", borderRadius: 6, padding: "6px 8px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                기록
+              </button>
+            </div>
+
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 11, color: "#475569", marginBottom: flightLogs.length ? 8 : 0 }}>
+              <span>현재 기준 추정 <b>{estimate90.toFixed(1)}분</b></span>
+              <span>보정 후 <b>{calibrated90.toFixed(1)}분</b></span>
+              <span>현재 TOW <b>{r.tow.toFixed(2)}kg</b></span>
+            </div>
+
+            {flightLogs.length > 0 && (
+              <div style={{ display: "grid", gap: 4, maxHeight: 118, overflowY: "auto" }}>
+                {flightLogs.map(log => (
+                  <div key={log.id} style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: 8, alignItems: "center",
+                    borderTop: "1px solid #f1f5f9", paddingTop: 4, fontSize: 10, color: "#64748b" }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{log.name} · {log.battery}</span>
+                    <span>예상 {log.estimatedMin.toFixed(1)}분</span>
+                    <span style={{ color: "#0f766e", fontWeight: 700 }}>실측 {log.measuredMin.toFixed(1)}분</span>
+                    <button onClick={() => removeFlightLog(log.id)} title="삭제"
+                      style={{ background: "none", border: "none", color: "#cbd5e1", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* weight bar */}
           <div style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0", padding: "8px 14px" }}>
