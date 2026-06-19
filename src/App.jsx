@@ -8,17 +8,70 @@ import { getComboLabel, interpolateByThrust, loadMotorPresetCsv } from "./data/m
 const G = 9.81;
 const RHO = 1.225;
 const CELL_V = 3.7;
+const DEFAULT_MOTOR_COMBO_ID = "holybro-air2216ii-kv920-4s-t1045ii";
 
 const INIT = {
-  rotors: 4, frameKg: 0.432, elecKg: 0.3,
-  motorPropKg: 0.07, escWireKg: 0.037,
-  propInch: 9.4, fm: 0.45, avW: 10, errKg: 0.05,
+  rotors: 4, frameKg: 0.61, elecKg: 0.3,
+  motorPropKg: 0.077, escWireKg: 0.021,
+  propInch: 10, fm: 0.45, avW: 10, errKg: 0.05,
 };
 
-const INIT_BATT = { cells: 4, mah: 10000, kg: 0.8 };
-const INIT_ESC = { kg: 0.037, continuousA: 35, maxA: 60, cellMin: 2, cellMax: 6 };
+const INIT_BATT = { cells: 4, mah: 5000, kg: 0.5, cRate: 20 };
+const INIT_ESC = { kg: 0.021, continuousA: 20, maxA: 30, cellMin: 3, cellMax: 4 };
 const INIT_SOLAR = { on: false, kg: 0.5, watts: 0, weatherPct: 70 };
 const LOG_STORAGE_KEY = "drone-flight-test-logs-v1";
+
+const VEHICLE_PRESETS = [
+  {
+    id: "holybro-x500-v2",
+    name: "Holybro X500 V2",
+    p: {
+      rotors: 4,
+      frameKg: 0.61,
+      elecKg: 0.3,
+      motorPropKg: 0.077,
+      propInch: 10,
+      fm: 0.45,
+      avW: 10,
+      errKg: 0.05
+    },
+    batt: { cells: 4, mah: 5000, kg: 0.5, cRate: 20 },
+    esc: { kg: 0.021, continuousA: 20, maxA: 30, cellMin: 3, cellMax: 4 },
+    comboId: DEFAULT_MOTOR_COMBO_ID
+  },
+  {
+    id: "edu-450-quad",
+    name: "450급 교육용 쿼드",
+    p: {
+      rotors: 4,
+      frameKg: 0.432,
+      elecKg: 0.3,
+      motorPropKg: 0.07,
+      propInch: 9.4,
+      fm: 0.45,
+      avW: 10,
+      errKg: 0.05
+    },
+    batt: { cells: 4, mah: 10000, kg: 0.8, cRate: 25 },
+    esc: { kg: 0.037, continuousA: 35, maxA: 60, cellMin: 2, cellMax: 6 }
+  },
+  {
+    id: "tarot-680-pro-hexa",
+    name: "Tarot 680 Pro (헥사)",
+    p: {
+      rotors: 6,
+      frameKg: 0.75,
+      elecKg: 0.35,
+      motorPropKg: 0.12,
+      propInch: 13,
+      fm: 0.48,
+      avW: 12,
+      errKg: 0.08
+    },
+    batt: { cells: 6, mah: 10000, kg: 1.25, cRate: 25 },
+    esc: { kg: 0.045, continuousA: 40, maxA: 60, cellMin: 3, cellMax: 6 }
+  }
+];
 
 const INIT_EQUIP = [
   { id: 1, name: "짐벌 카메라", kg: 0.30, w: 8, on: false },
@@ -128,6 +181,7 @@ export default function App() {
   const [equip, setEquip] = useState(INIT_EQUIP);
   const [nextId, setNextId] = useState(100);
   const [tab, setTab] = useState("curve");
+  const [vehiclePresetId, setVehiclePresetId] = useState("holybro-x500-v2");
   const [motorCombos, setMotorCombos] = useState([]);
   const [motorDataError, setMotorDataError] = useState("");
   const [motorMaker, setMotorMaker] = useState("");
@@ -152,6 +206,7 @@ export default function App() {
   const battV = batt.cells * CELL_V;
   const battWh = battV * batt.mah / 1000;
   const battWhKg = batt.kg > 0 ? battWh / batt.kg : 0;
+  const batteryMaxCurrentA = (batt.mah / 1000) * batt.cRate;
   const pCalc = useMemo(() => ({ ...p, escWireKg: esc.kg }), [p, esc.kg]);
 
   const totalBattKg = batt.kg;
@@ -190,10 +245,43 @@ export default function App() {
       m90: (fullMinByPower || fullMinByCurrent) * 0.9,
       thrustMarginPct: ((maxThrustG - requiredThrustG) / Math.max(requiredThrustG, 1)) * 100,
       escMarginPct: ((esc.continuousA - hover.currentA) / Math.max(hover.currentA, 0.01)) * 100,
-      voltageMismatch: Math.abs(battV - selectedCombo.voltage) > 1
+      voltageMismatch: batt.cells !== selectedCombo.cells
     };
-  }, [selectedCombo, r.tow, p.rotors, p.avW, eqPower, solarW, batt.mah, battWh, battV, esc.continuousA]);
+  }, [selectedCombo, r.tow, p.rotors, p.avW, eqPower, solarW, batt.mah, battWh, battV, batt.cells, esc.continuousA]);
   const estimate90 = tableCalc?.m90 || r.m90;
+  const estimatedBatteryCurrentA = tableCalc?.batteryCurrentA || (battV > 0 ? r.tW / battV : 0);
+  const batteryMarginPct = ((batteryMaxCurrentA - estimatedBatteryCurrentA) / Math.max(estimatedBatteryCurrentA, 0.01)) * 100;
+  const hoverThrottle = tableCalc?.throttle;
+  const decisionItems = useMemo(() => {
+    const items = [];
+    const add = (level, title, detail) => items.push({ level, title, detail });
+
+    if (selectedCombo && tableCalc) {
+      if (tableCalc.limited === "high") add("danger", "추력 부족", "요구 추력이 제조사 추력표 최대값을 넘습니다.");
+      else if (tableCalc.thrustMarginPct < 30) add("warning", "추력 여유 낮음", `추력 여유가 ${tableCalc.thrustMarginPct.toFixed(0)}%입니다.`);
+      else add("ok", "추력 여유 충분", `추력 여유 ${tableCalc.thrustMarginPct.toFixed(0)}%`);
+
+      if (tableCalc.escMarginPct < 20) add("danger", "ESC 연속전류 여유 부족", `ESC 여유가 ${tableCalc.escMarginPct.toFixed(0)}%입니다.`);
+      else if (tableCalc.escMarginPct < 50) add("warning", "ESC 연속전류 여유 확인", `ESC 여유 ${tableCalc.escMarginPct.toFixed(0)}%`);
+      else add("ok", "ESC 전류 여유 충분", `ESC 여유 ${tableCalc.escMarginPct.toFixed(0)}%`);
+
+      if (hoverThrottle >= 75) add("warning", "호버 스로틀 높음", `예상 호버 스로틀 ${hoverThrottle.toFixed(0)}%`);
+      else if (hoverThrottle) add("ok", "호버 스로틀 양호", `예상 호버 스로틀 ${hoverThrottle.toFixed(0)}%`);
+
+      if (tableCalc.voltageMismatch) add("warning", "추력표 전압 불일치", "배터리 전압과 선택한 추력표 전압이 다릅니다.");
+    } else {
+      add("info", "추력표 미선택", "모터/프롭 프리셋을 선택하면 추력, ESC, 스로틀 판정이 더 정확해집니다.");
+    }
+
+    if (batteryMaxCurrentA <= 0) add("warning", "배터리 C-rate 확인 필요", "배터리 C-rate가 0이거나 비어 있습니다.");
+    else if (batteryMarginPct < 20) add("danger", "배터리 방전 여유 부족", `배터리 여유가 ${batteryMarginPct.toFixed(0)}%입니다.`);
+    else if (batteryMarginPct < 50) add("warning", "배터리 방전 여유 확인", `배터리 여유 ${batteryMarginPct.toFixed(0)}%`);
+    else add("ok", "배터리 방전 여유 충분", `최대 ${batteryMaxCurrentA.toFixed(0)}A / 예상 ${estimatedBatteryCurrentA.toFixed(1)}A`);
+
+    if (r.tW <= 1 && solarW > 0) add("warning", "발전량 과대 가능", "태양전지 발전량이 소비전력을 거의 상쇄합니다. 실제 조건을 확인하세요.");
+
+    return items;
+  }, [selectedCombo, tableCalc, hoverThrottle, batteryMaxCurrentA, estimatedBatteryCurrentA, batteryMarginPct, r.tW, solarW]);
   const calibrationFactor = useMemo(() => {
     const ratios = flightLogs
       .filter(log => log.measuredMin > 0 && log.estimatedMin > 0)
@@ -213,7 +301,9 @@ export default function App() {
       .then(combos => {
         if (!alive) return;
         setMotorCombos(combos);
-        setMotorMaker(combos[0]?.maker || "");
+        const defaultCombo = combos.find(combo => combo.id === DEFAULT_MOTOR_COMBO_ID);
+        setMotorMaker(defaultCombo?.maker || combos[0]?.maker || "");
+        setComboId(defaultCombo?.id || "");
         setMotorDataError("");
       })
       .catch(error => {
@@ -257,6 +347,21 @@ export default function App() {
     setEquip(prev => [...prev, { id: nextId, name: "", kg: 0, w: 0, on: true }]);
     setNextId(n => n + 1);
   };
+  const applyVehiclePreset = (id) => {
+    setVehiclePresetId(id);
+    const preset = VEHICLE_PRESETS.find(item => item.id === id);
+    if (!preset) return;
+    setP(prev => ({ ...prev, ...preset.p }));
+    setBatt(prev => ({ ...prev, ...preset.batt }));
+    setEsc(prev => ({ ...prev, ...preset.esc }));
+    if (preset.comboId) {
+      const combo = motorCombos.find(item => item.id === preset.comboId);
+      setMotorMaker(combo?.maker || "");
+      setComboId(preset.comboId);
+    } else {
+      setComboId("");
+    }
+  };
   const addFlightLog = () => {
     const measured = Number(measuredMin);
     if (!measured || measured <= 0) return;
@@ -295,8 +400,10 @@ export default function App() {
     setEsc(INIT_ESC);
     setSolar(INIT_SOLAR);
     setEquip(INIT_EQUIP);
-    setMotorMaker(motorCombos[0]?.maker || "");
-    setComboId("");
+    setVehiclePresetId("holybro-x500-v2");
+    const defaultCombo = motorCombos.find(combo => combo.id === DEFAULT_MOTOR_COMBO_ID);
+    setMotorMaker(defaultCombo?.maker || motorCombos[0]?.maker || "");
+    setComboId(defaultCombo?.id || "");
   };
 
   const shown90 = applyCalibration && flightLogs.length ? calibrated90 : estimate90;
@@ -331,6 +438,22 @@ export default function App() {
         {/* ─── LEFT ─── */}
         <div style={{ width: 280, flexShrink: 0 }}>
           <Sec title="기체 구성" icon="🔧">
+            <div style={{ marginBottom: 8 }}>
+              <span style={{ display: "block", fontSize: 12, color: "#475569", marginBottom: 4 }}>기체 프리셋</span>
+              <select value={vehiclePresetId} onChange={e => applyVehiclePreset(e.target.value)}
+                style={{ width: "100%", border: "1px solid #cbd5e1", borderRadius: 6, padding: "5px 6px",
+                  fontSize: 12, color: "#1e293b", background: "#f8fafc", outline: "none" }}>
+                <option value="">직접 입력</option>
+                {VEHICLE_PRESETS.map(preset => (
+                  <option key={preset.id} value={preset.id}>{preset.name}</option>
+                ))}
+              </select>
+              {vehiclePresetId && (
+                <div style={{ fontSize: 10, color: "#94a3b8", lineHeight: 1.5, marginTop: 4 }}>
+                  프리셋 적용 후 아래 값은 자유롭게 수정할 수 있습니다.
+                </div>
+              )}
+            </div>
             <div style={{ marginBottom: 6 }}>
               <span style={{ fontSize: 12, color: "#475569", marginRight: 8 }}>로터 수</span>
               {[3,4,6,8].map(n => (
@@ -416,10 +539,12 @@ export default function App() {
             <InputRow label="셀 수 (S)" unit="S" value={batt.cells} onChange={v => setB("cells", Math.round(v))} min={1} max={14} step={1} />
             <InputRow label="용량" unit="mAh" value={batt.mah} onChange={v => setB("mah", Math.round(v))} min={100} max={100000} step={100} />
             <InputRow label="배터리 무게" unit="kg" value={batt.kg} onChange={v => setB("kg", v)} max={10} />
+            <InputRow label="방전률" unit="C" value={batt.cRate} onChange={v => setB("cRate", v)} min={0} max={200} step={1} />
             <div style={{ background: "#f8fafc", borderRadius: 6, padding: "6px 8px", marginTop: 4, fontSize: 11, color: "#475569", lineHeight: 1.7 }}>
               전압: <b>{battV.toFixed(1)}V</b>&ensp;·&ensp;
               에너지: <b>{battWh.toFixed(1)} Wh</b>&ensp;·&ensp;
-              밀도: <b>{battWhKg.toFixed(0)} Wh/kg</b>
+              밀도: <b>{battWhKg.toFixed(0)} Wh/kg</b>&ensp;·&ensp;
+              최대전류: <b>{batteryMaxCurrentA.toFixed(0)}A</b>
             </div>
           </Sec>
 
@@ -509,7 +634,7 @@ export default function App() {
             <SmallCard label="순소비전력" value={r.tW} unit="W" />
             <SmallCard label="배터리 에너지" value={r.battWh} unit="Wh" />
             <SmallCard label={`로터당 추력 (×${p.rotors})`} value={r.tow / p.rotors} unit="kgf" />
-            <SmallCard label="전력 하중비" value={r.tW / Math.max(r.tow, 0.01)} unit="W/kg" />
+            <SmallCard label="배터리 여유" value={batteryMarginPct} unit="%" />
           </div>
 
           {selectedCombo && tableCalc && (
@@ -520,7 +645,9 @@ export default function App() {
                   <div style={{ fontSize: 10, color: "#64748b" }}>{getComboLabel(selectedCombo)}</div>
                 </div>
                 <a href={selectedCombo.sourceUrl} target="_blank" rel="noreferrer"
-                  style={{ fontSize: 10, color: "#2563eb", textDecoration: "none", whiteSpace: "nowrap" }}>T-MOTOR 자료</a>
+                  style={{ fontSize: 10, color: "#2563eb", textDecoration: "none", whiteSpace: "nowrap" }}>
+                  {selectedCombo.maker} 자료
+                </a>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
                 <SmallCard label="추력표 비행시간 (90%)" value={tableCalc.m90} unit="분" />
@@ -539,6 +666,38 @@ export default function App() {
               </div>
             </div>
           )}
+
+          <div style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0", padding: "10px 14px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#334155" }}>조합 판정</div>
+                <div style={{ fontSize: 10, color: "#94a3b8" }}>
+                  배터리 {estimatedBatteryCurrentA.toFixed(1)}A 예상 · 최대 {batteryMaxCurrentA.toFixed(0)}A
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: batteryMarginPct < 20 ? "#dc2626" : batteryMarginPct < 50 ? "#b45309" : "#047857",
+                fontWeight: 800, whiteSpace: "nowrap" }}>
+                배터리 여유 {batteryMarginPct.toFixed(0)}%
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 6 }}>
+              {decisionItems.map((item, i) => {
+                const color = item.level === "danger" ? "#dc2626" : item.level === "warning" ? "#b45309" : item.level === "ok" ? "#047857" : "#475569";
+                const bg = item.level === "danger" ? "#fef2f2" : item.level === "warning" ? "#fffbeb" : item.level === "ok" ? "#ecfdf5" : "#f8fafc";
+                const mark = item.level === "danger" ? "!" : item.level === "warning" ? "!" : item.level === "ok" ? "✓" : "i";
+                return (
+                  <div key={`${item.title}-${i}`} style={{ background: bg, border: `1px solid ${color}22`, borderRadius: 8, padding: "7px 9px",
+                    display: "grid", gridTemplateColumns: "18px 1fr", gap: 6, alignItems: "start" }}>
+                    <span style={{ color, fontSize: 12, fontWeight: 900, lineHeight: "16px", textAlign: "center" }}>{mark}</span>
+                    <span>
+                      <span style={{ display: "block", color: "#1e293b", fontSize: 11, fontWeight: 700 }}>{item.title}</span>
+                      <span style={{ display: "block", color: "#64748b", fontSize: 10, lineHeight: 1.35 }}>{item.detail}</span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
           <div style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0", padding: "10px 14px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
