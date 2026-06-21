@@ -250,7 +250,9 @@ export default function App() {
   }, [selectedCombo, r.tow, p.rotors, p.avW, eqPower, solarW, batt.mah, battWh, battV, batt.cells, esc.continuousA]);
   const estimate90 = tableCalc?.m90 || r.m90;
   const estimatedBatteryCurrentA = tableCalc?.batteryCurrentA || (battV > 0 ? r.tW / battV : 0);
-  const batteryMarginPct = ((batteryMaxCurrentA - estimatedBatteryCurrentA) / Math.max(estimatedBatteryCurrentA, 0.01)) * 100;
+  const batteryLoadPct = batteryMaxCurrentA > 0
+    ? (estimatedBatteryCurrentA / batteryMaxCurrentA) * 100
+    : 0;
   const hoverThrottle = tableCalc?.throttle;
   const decisionItems = useMemo(() => {
     const items = [];
@@ -274,14 +276,14 @@ export default function App() {
     }
 
     if (batteryMaxCurrentA <= 0) add("warning", "배터리 C-rate 확인 필요", "배터리 C-rate가 0이거나 비어 있습니다.");
-    else if (batteryMarginPct < 20) add("danger", "배터리 방전 여유 부족", `배터리 여유가 ${batteryMarginPct.toFixed(0)}%입니다.`);
-    else if (batteryMarginPct < 50) add("warning", "배터리 방전 여유 확인", `배터리 여유 ${batteryMarginPct.toFixed(0)}%`);
-    else add("ok", "배터리 방전 여유 충분", `최대 ${batteryMaxCurrentA.toFixed(0)}A / 예상 ${estimatedBatteryCurrentA.toFixed(1)}A`);
+    else if (batteryLoadPct >= 80) add("danger", "배터리 방전부하 위험", `정격 최대전류의 ${batteryLoadPct.toFixed(0)}%를 사용합니다.`);
+    else if (batteryLoadPct >= 50) add("warning", "배터리 방전부하 주의", `정격 최대전류의 ${batteryLoadPct.toFixed(0)}%를 사용합니다.`);
+    else add("ok", "배터리 방전부하 양호", `예상 ${estimatedBatteryCurrentA.toFixed(1)}A / 정격 최대 ${batteryMaxCurrentA.toFixed(0)}A`);
 
     if (r.tW <= 1 && solarW > 0) add("warning", "발전량 과대 가능", "태양전지 발전량이 소비전력을 거의 상쇄합니다. 실제 조건을 확인하세요.");
 
     return items;
-  }, [selectedCombo, tableCalc, hoverThrottle, batteryMaxCurrentA, estimatedBatteryCurrentA, batteryMarginPct, r.tW, solarW]);
+  }, [selectedCombo, tableCalc, hoverThrottle, batteryMaxCurrentA, estimatedBatteryCurrentA, batteryLoadPct, r.tW, solarW]);
   const calibrationFactor = useMemo(() => {
     const ratios = flightLogs
       .filter(log => log.measuredMin > 0 && log.estimatedMin > 0)
@@ -634,7 +636,7 @@ export default function App() {
             <SmallCard label="순소비전력" value={r.tW} unit="W" />
             <SmallCard label="배터리 에너지" value={r.battWh} unit="Wh" />
             <SmallCard label={`로터당 추력 (×${p.rotors})`} value={r.tow / p.rotors} unit="kgf" />
-            <SmallCard label="배터리 여유" value={batteryMarginPct} unit="%" />
+            <SmallCard label="배터리 방전부하" value={batteryLoadPct} unit="%" />
           </div>
 
           {selectedCombo && tableCalc && (
@@ -675,9 +677,9 @@ export default function App() {
                   배터리 {estimatedBatteryCurrentA.toFixed(1)}A 예상 · 최대 {batteryMaxCurrentA.toFixed(0)}A
                 </div>
               </div>
-              <div style={{ fontSize: 11, color: batteryMarginPct < 20 ? "#dc2626" : batteryMarginPct < 50 ? "#b45309" : "#047857",
+              <div style={{ fontSize: 11, color: batteryLoadPct >= 80 ? "#dc2626" : batteryLoadPct >= 50 ? "#b45309" : "#047857",
                 fontWeight: 800, whiteSpace: "nowrap" }}>
-                배터리 여유 {batteryMarginPct.toFixed(0)}%
+                방전부하 {batteryLoadPct.toFixed(0)}%
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 6 }}>
