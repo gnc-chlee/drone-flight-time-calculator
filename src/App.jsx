@@ -3,6 +3,27 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine, Cell, LabelList
 } from "recharts";
+import {
+  Activity,
+  BarChart3,
+  BatteryCharging,
+  Check,
+  ChevronDown,
+  CircleAlert,
+  Cpu,
+  ExternalLink,
+  Info,
+  LineChart,
+  Plane,
+  Plus,
+  RotateCcw,
+  Settings2,
+  SlidersHorizontal,
+  Sun,
+  Target,
+  TriangleAlert,
+  Zap
+} from "lucide-react";
 import { getComboLabel, interpolateByThrust, loadMotorPresetCsv } from "./data/motorData";
 
 const G = 9.81;
@@ -20,6 +41,27 @@ const INIT_BATT = { cells: 4, mah: 5000, kg: 0.5, cRate: 20 };
 const INIT_ESC = { kg: 0.021, continuousA: 20, maxA: 30, cellMin: 3, cellMax: 4 };
 const INIT_SOLAR = { on: false, kg: 0.5, watts: 0, weatherPct: 70 };
 const LOG_STORAGE_KEY = "drone-flight-test-logs-v1";
+
+const STATUS = {
+  danger: { color: "#dc2626", bg: "#fef2f2", soft: "#fee2e2", Icon: TriangleAlert },
+  warning: { color: "#b45309", bg: "#fffbeb", soft: "#fef3c7", Icon: CircleAlert },
+  ok: { color: "#047857", bg: "#ecfdf5", soft: "#d1fae5", Icon: Check },
+  info: { color: "#2563eb", bg: "#eff6ff", soft: "#dbeafe", Icon: Info }
+};
+
+const LEVEL_META = {
+  danger: STATUS.danger,
+  warning: STATUS.warning,
+  ok: STATUS.ok,
+  info: STATUS.info
+};
+
+const TIME_COLORS = {
+  good: "#059669",
+  caution: "#d97706",
+  low: "#ea580c",
+  danger: "#dc2626"
+};
 
 const VEHICLE_PRESETS = [
   {
@@ -110,35 +152,39 @@ const InputRow = ({ label, unit, value, onChange, min = 0, max = 99999, step = 0
   </div>
 );
 
-const Sec = ({ title, icon, children, open: initOpen = true }) => {
+const Sec = ({ title, icon: Icon, children, open: initOpen = true }) => {
   const [open, setOpen] = useState(initOpen);
   return (
-    <div style={{ marginBottom: 6, background: "white", borderRadius: 10, border: "1px solid #e2e8f0", overflow: "hidden" }}>
+    <div className="section-card" style={{ marginBottom: 6, background: "white", borderRadius: 10, border: "1px solid #e2e8f0", overflow: "hidden" }}>
       <button onClick={() => setOpen(!open)}
         style={{ width: "100%", padding: "7px 12px", display: "flex", alignItems: "center", gap: 6,
           background: "none", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#1e293b" }}>
-        <span>{icon}</span><span style={{ flex: 1, textAlign: "left" }}>{title}</span>
-        <span style={{ fontSize: 10, color: "#94a3b8", transform: open ? "rotate(180deg)" : "none", transition: "0.2s" }}>▼</span>
+        {Icon && <Icon size={15} strokeWidth={2.2} color="#2563eb" style={{ flexShrink: 0 }} />}
+        <span style={{ flex: 1, textAlign: "left" }}>{title}</span>
+        <ChevronDown size={14} color="#94a3b8" style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "0.2s" }} />
       </button>
       {open && <div style={{ padding: "2px 12px 10px" }}>{children}</div>}
     </div>
   );
 };
 
-const BigNum = ({ label, value, unit, sub, color, border }) => (
-  <div style={{ background: border ? `linear-gradient(135deg,${color}14,${color}06)` : "white",
-    borderRadius: 12, padding: "12px 16px", border: border ? `2px solid ${color}35` : "1px solid #e2e8f0",
-    flex: 1, minWidth: 0, textAlign: "center" }}>
+const BigNum = ({ label, value, unit, sub, color, border, featured = false }) => (
+  <div className={`big-num${featured ? " big-num-featured" : ""}`}
+    style={{ background: border ? `linear-gradient(135deg,${color}14,${color}06)` : "white",
+    borderRadius: 12, padding: featured ? "16px 18px" : "12px 16px", border: border ? `2px solid ${color}35` : "1px solid #e2e8f0",
+    boxShadow: featured ? `0 14px 30px ${color}18` : undefined,
+    flex: featured ? 1.25 : 1, minWidth: 0, textAlign: "center" }}>
     <div style={{ fontSize: 11, color: "#64748b", marginBottom: 2 }}>{label}</div>
-    <div style={{ fontSize: 36, fontWeight: 800, color: color || "#0f172a", lineHeight: 1.1,
+    <div style={{ fontSize: featured ? 44 : 36, fontWeight: 800, color: color || "#0f172a", lineHeight: 1.1,
       fontVariantNumeric: "tabular-nums" }}>{value}</div>
     <div style={{ fontSize: 13, color: color || "#64748b", fontWeight: 500 }}>{unit}</div>
     {sub && <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 3 }}>{sub}</div>}
   </div>
 );
 
-const SmallCard = ({ label, value, unit }) => (
-  <div style={{ background: "white", borderRadius: 8, padding: "8px 12px", border: "1px solid #e2e8f0", flex: 1, minWidth: 0 }}>
+const SmallCard = ({ label, value, unit, className = "" }) => (
+  <div className={`small-card${className ? ` ${className}` : ""}`}
+    style={{ background: "white", borderRadius: 8, padding: "8px 12px", border: "1px solid #e2e8f0", flex: 1, minWidth: 0 }}>
     <div style={{ fontSize: 10, color: "#94a3b8" }}>{label}</div>
     <div style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", fontVariantNumeric: "tabular-nums" }}>
       {typeof value === "number" ? value.toFixed(1) : value}<span style={{ fontSize: 11, color: "#94a3b8", marginLeft: 3 }}>{unit}</span>
@@ -189,6 +235,7 @@ export default function App() {
   const [logName, setLogName] = useState("");
   const [measuredMin, setMeasuredMin] = useState("");
   const [applyCalibration, setApplyCalibration] = useState(false);
+  const [calibrationOpen, setCalibrationOpen] = useState(false);
   const [flightLogs, setFlightLogs] = useState(() => {
     if (typeof window === "undefined") return [];
     try {
@@ -284,6 +331,35 @@ export default function App() {
 
     return items;
   }, [selectedCombo, tableCalc, hoverThrottle, batteryMaxCurrentA, estimatedBatteryCurrentA, batteryLoadPct, r.tW, solarW]);
+  const decisionSummary = useMemo(() => {
+    if (decisionItems.some(item => item.level === "danger")) {
+      return {
+        level: "danger",
+        title: "조합 재검토 필요",
+        detail: "위험 항목이 있어 모터, ESC, 배터리 조건을 다시 확인해야 합니다."
+      };
+    }
+    if (decisionItems.some(item => item.level === "warning")) {
+      return {
+        level: "warning",
+        title: "주의해서 사용",
+        detail: "비행은 가능해 보이지만 여유가 낮은 항목을 확인하는 편이 좋습니다."
+      };
+    }
+    if (decisionItems.some(item => item.level === "info")) {
+      return {
+        level: "info",
+        title: "추력표 선택 권장",
+        detail: "제조사 추력표를 선택하면 스로틀, 전류, 추력 여유 판정이 더 정확해집니다."
+      };
+    }
+    return {
+      level: "ok",
+      title: "현재 조합 양호",
+      detail: "입력된 조건 기준으로 추력, ESC, 배터리 부하가 적정 범위입니다."
+    };
+  }, [decisionItems]);
+  const decisionStyle = LEVEL_META[decisionSummary.level] || LEVEL_META.info;
   const calibrationFactor = useMemo(() => {
     const ratios = flightLogs
       .filter(log => log.measuredMin > 0 && log.estimatedMin > 0)
@@ -380,6 +456,7 @@ export default function App() {
     setFlightLogs(prev => [entry, ...prev].slice(0, 12));
     setMeasuredMin("");
     setLogName("");
+    setCalibrationOpen(true);
   };
   const removeFlightLog = (id) => setFlightLogs(prev => prev.filter(log => log.id !== id));
 
@@ -409,7 +486,9 @@ export default function App() {
   };
 
   const shown90 = applyCalibration && flightLogs.length ? calibrated90 : estimate90;
-  const tc = shown90 > 25 ? "#10b981" : shown90 > 15 ? "#f59e0b" : shown90 > 8 ? "#f97316" : "#ef4444";
+  const showCalibrationDetails = calibrationOpen;
+  const tc = shown90 > 25 ? TIME_COLORS.good : shown90 > 15 ? TIME_COLORS.caution : shown90 > 8 ? TIME_COLORS.low : TIME_COLORS.danger;
+  const DecisionIcon = decisionStyle.Icon || Info;
 
   const weights = [
     { name: "프레임", val: p.frameKg, col: "#64748b" },
@@ -422,24 +501,62 @@ export default function App() {
     { name: "임무장비", val: eqPayload, col: "#ef4444" },
   ];
   const towDisplay = r.tow;
+  const currentPresetName = VEHICLE_PRESETS.find(preset => preset.id === vehiclePresetId)?.name || "직접 입력";
+  const headerChips = [
+    currentPresetName,
+    `${p.rotors}로터`,
+    `${batt.cells}S ${batt.mah.toLocaleString()}mAh`,
+    selectedCombo ? `${selectedCombo.maker} 추력표` : "직접 입력 추력"
+  ];
 
   return (
-    <div style={{ fontFamily: "'Inter',-apple-system,system-ui,sans-serif", background: "#f1f5f9", minHeight: "100vh" }}>
+    <div className="app-root" style={{ fontFamily: "'Inter',-apple-system,system-ui,sans-serif", background: "linear-gradient(180deg,#eef7f8 0%,#f8fafc 34%,#eef2f7 100%)", minHeight: "100vh" }}>
       {/* header */}
-      <div style={{ background: "linear-gradient(135deg,#0f172a,#1e3a5f)", padding: "12px 20px", color: "white",
-        display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div>
-          <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, letterSpacing: -0.5 }}>✈️ 멀티콥터 비행시간 추정기</h1>
-          <p style={{ fontSize: 11, opacity: 0.55, margin: "2px 0 0" }}>Momentum Theory 기반 호버링 비행시간 계산</p>
+      <div className="app-header" style={{ background: "linear-gradient(135deg,#0f172a 0%,#164e63 58%,#0f766e 100%)", padding: "14px 22px", color: "white",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+        <div style={{ minWidth: 0 }}>
+          <h1 className="app-title" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 18, fontWeight: 700, margin: 0, letterSpacing: 0 }}>
+            <Plane size={20} strokeWidth={2.4} />
+            멀티콥터 비행시간 추정기
+          </h1>
+          <p className="app-subtitle" style={{ fontSize: 11, opacity: 1, margin: "3px 0 0" }}>호버링 비행시간 · 전류 여유 · 임무장비 영향</p>
+          <div className="header-context">
+            {headerChips.map(chip => (
+              <span className="header-chip" key={chip}>{chip}</span>
+            ))}
+          </div>
         </div>
-        <button onClick={resetAll} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
-          color: "white", padding: "5px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>↺ 초기화</button>
+        <button className="reset-button" onClick={resetAll} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
+          color: "white", padding: "5px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer",
+          display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <RotateCcw size={13} />
+          초기화
+        </button>
       </div>
 
-      <div style={{ display: "flex", gap: 10, padding: 10, maxWidth: 1400, margin: "0 auto" }}>
+      <div className="mobile-quick-summary" style={{ background: "white", border: `1px solid ${decisionStyle.soft}`, borderRadius: 10,
+        padding: 12, margin: "8px 8px 0", boxShadow: "0 8px 24px rgba(15,23,42,0.06)" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}>
+          <span style={{ width: 28, height: 28, borderRadius: 7, background: decisionStyle.bg, color: decisionStyle.color,
+            display: "grid", placeItems: "center", flexShrink: 0 }}>
+            <DecisionIcon size={16} strokeWidth={2.6} />
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>{decisionSummary.title}</div>
+            <div style={{ fontSize: 11, color: "#64748b", lineHeight: 1.4 }}>{decisionSummary.detail}</div>
+          </div>
+        </div>
+        <div className="mobile-summary-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 6 }}>
+          <SmallCard label="예상 시간" value={shown90} unit="분" />
+          <SmallCard label="이륙중량" value={towDisplay} unit="kg" />
+          <SmallCard label="방전부하" value={batteryLoadPct} unit="%" />
+        </div>
+      </div>
+
+      <div className="app-layout" style={{ display: "flex", gap: 10, padding: 10, maxWidth: 1400, margin: "0 auto" }}>
         {/* ─── LEFT ─── */}
-        <div style={{ width: 280, flexShrink: 0 }}>
-          <Sec title="기체 구성" icon="🔧">
+        <div className="inputs-panel" style={{ width: 280, flexShrink: 0 }}>
+          <Sec title="기체 구성" icon={SlidersHorizontal}>
             <div style={{ marginBottom: 8 }}>
               <span style={{ display: "block", fontSize: 12, color: "#475569", marginBottom: 4 }}>기체 프리셋</span>
               <select value={vehiclePresetId} onChange={e => applyVehiclePreset(e.target.value)}
@@ -468,10 +585,9 @@ export default function App() {
             </div>
             <InputRow label="프레임 무게" unit="kg" value={p.frameKg} onChange={v => set("frameKg", v)} max={10} />
             <InputRow label="전자부품 무게" unit="kg" value={p.elecKg} onChange={v => set("elecKg", v)} max={5} />
-            <InputRow label="오차 계수" unit="kg" value={p.errKg} onChange={v => set("errKg", v)} max={1} />
           </Sec>
 
-          <Sec title="모터 / 프로펠러" icon="⚡">
+          <Sec title="모터 / 프로펠러" icon={Zap}>
             <div style={{ marginBottom: 8 }}>
               <span style={{ display: "block", fontSize: 12, color: "#475569", marginBottom: 4 }}>제조사</span>
               <select value={motorMaker} onChange={e => { setMotorMaker(e.target.value); setComboId(""); }}
@@ -509,26 +625,11 @@ export default function App() {
             </div>
             <InputRow label="모터+프롭 (개당)" unit="kg" value={p.motorPropKg} onChange={v => set("motorPropKg", v)} max={2} />
             <InputRow label="프롭 직경" unit="inch" value={p.propInch} onChange={v => set("propInch", v)} min={3} max={30} step={0.1} />
-            <InputRow label="Figure of Merit" unit="" value={p.fm} onChange={v => set("fm", v)} min={0.1} max={0.8} step={0.01} />
           </Sec>
 
-          <Sec title="ESC / 배선" icon="▣">
+          <Sec title="ESC / 배선" icon={Cpu}>
             <InputRow label="ESC+배선 (개당)" unit="kg" value={esc.kg} onChange={v => setE("kg", v)} max={1} />
             <InputRow label="연속 전류" unit="A" value={esc.continuousA} onChange={v => setE("continuousA", v)} max={300} step={1} />
-            <InputRow label="최대 전류" unit="A" value={esc.maxA} onChange={v => setE("maxA", v)} max={500} step={1} />
-            <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 16px 1fr 16px", alignItems: "center", gap: 6, marginBottom: 5 }}>
-              <span style={{ fontSize: 12, color: "#475569" }}>지원 셀</span>
-              <input type="number" value={esc.cellMin} min={1} max={24} step={1}
-                onChange={e => setE("cellMin", Math.round(+e.target.value))}
-                style={{ width: "100%", minWidth: 0, padding: "4px 6px", border: "1px solid #cbd5e1", borderRadius: 6,
-                  fontSize: 13, textAlign: "right", outline: "none", background: "#f8fafc" }} />
-              <span style={{ fontSize: 11, color: "#94a3b8" }}>S</span>
-              <input type="number" value={esc.cellMax} min={1} max={24} step={1}
-                onChange={e => setE("cellMax", Math.round(+e.target.value))}
-                style={{ width: "100%", minWidth: 0, padding: "4px 6px", border: "1px solid #cbd5e1", borderRadius: 6,
-                  fontSize: 13, textAlign: "right", outline: "none", background: "#f8fafc" }} />
-              <span style={{ fontSize: 11, color: "#94a3b8" }}>S</span>
-            </div>
             <div style={{ background: "#f8fafc", borderRadius: 6, padding: "6px 8px", marginTop: 2, fontSize: 11, color: "#475569", lineHeight: 1.6 }}>
               전체 ESC+배선 무게: <b>{(esc.kg * p.rotors).toFixed(3)} kg</b>
               {batt.cells < esc.cellMin || batt.cells > esc.cellMax
@@ -537,7 +638,7 @@ export default function App() {
             </div>
           </Sec>
 
-          <Sec title="배터리 (LiPo)" icon="🔋">
+          <Sec title="배터리 (LiPo)" icon={BatteryCharging}>
             <InputRow label="셀 수 (S)" unit="S" value={batt.cells} onChange={v => setB("cells", Math.round(v))} min={1} max={14} step={1} />
             <InputRow label="용량" unit="mAh" value={batt.mah} onChange={v => setB("mah", Math.round(v))} min={100} max={100000} step={100} />
             <InputRow label="배터리 무게" unit="kg" value={batt.kg} onChange={v => setB("kg", v)} max={10} />
@@ -550,11 +651,27 @@ export default function App() {
             </div>
           </Sec>
 
-          <Sec title="비행 조건" icon="🌤️" open={false}>
+          <Sec title="고급 설정" icon={Settings2} open={false}>
+            <InputRow label="Figure of Merit" unit="" value={p.fm} onChange={v => set("fm", v)} min={0.1} max={0.8} step={0.01} />
+            <InputRow label="오차 계수" unit="kg" value={p.errKg} onChange={v => set("errKg", v)} max={1} />
             <InputRow label="기본 전자장비 전력" unit="W" value={p.avW} onChange={v => set("avW", v)} max={200} step={1} />
+            <InputRow label="ESC 최대 전류" unit="A" value={esc.maxA} onChange={v => setE("maxA", v)} max={500} step={1} />
+            <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 16px 1fr 16px", alignItems: "center", gap: 6, marginBottom: 5 }}>
+              <span style={{ fontSize: 12, color: "#475569" }}>ESC 지원 셀</span>
+              <input type="number" value={esc.cellMin} min={1} max={24} step={1}
+                onChange={e => setE("cellMin", Math.round(+e.target.value))}
+                style={{ width: "100%", minWidth: 0, padding: "4px 6px", border: "1px solid #cbd5e1", borderRadius: 6,
+                  fontSize: 13, textAlign: "right", outline: "none", background: "#f8fafc" }} />
+              <span style={{ fontSize: 11, color: "#94a3b8" }}>S</span>
+              <input type="number" value={esc.cellMax} min={1} max={24} step={1}
+                onChange={e => setE("cellMax", Math.round(+e.target.value))}
+                style={{ width: "100%", minWidth: 0, padding: "4px 6px", border: "1px solid #cbd5e1", borderRadius: 6,
+                  fontSize: 13, textAlign: "right", outline: "none", background: "#f8fafc" }} />
+              <span style={{ fontSize: 11, color: "#94a3b8" }}>S</span>
+            </div>
           </Sec>
 
-          <Sec title="발전 옵션" icon="☀️" open={false}>
+          <Sec title="발전 옵션" icon={Sun} open={false}>
             <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 7, fontSize: 12, color: "#475569", cursor: "pointer" }}>
               <input type="checkbox" checked={solar.on} onChange={e => setSolar(prev => ({ ...prev, on: e.target.checked }))}
                 style={{ accentColor: "#22c55e", width: 15, height: 15 }} />
@@ -573,9 +690,16 @@ export default function App() {
           {/* ── 임무장비 ── */}
           <div style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0", padding: "10px 12px", marginTop: 6 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>🎯 임무장비</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, color: "#1e293b" }}>
+                <Target size={15} strokeWidth={2.2} color="#2563eb" />
+                임무장비
+              </span>
               <button onClick={addEq} style={{ background: "#3b82f6", color: "white", border: "none", borderRadius: 6,
-                padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>+ 추가</button>
+                padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600,
+                display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <Plus size={12} strokeWidth={2.5} />
+                추가
+              </button>
             </div>
 
             {/* column headers */}
@@ -622,36 +746,61 @@ export default function App() {
         </div>
 
         {/* ─── RIGHT ─── */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
-          {/* big numbers */}
-          <div style={{ display: "flex", gap: 10 }}>
-            <BigNum label={applyCalibration && flightLogs.length ? "보정 비행시간 (90%)" : "예상 비행시간 (90%)"}
-              value={shown90.toFixed(1)} unit="분" color={tc} border
-              sub={`${tableCalc ? "추력표" : "물리식"} 기준: ${estimate90.toFixed(1)}분 · 100%: ${(shown90 / 0.9).toFixed(1)}분`} />
-            <BigNum label="이륙중량 (TOW)" value={towDisplay.toFixed(2)} unit="kg" color="#1e293b" border
-              sub={`임무장비: ${eqPayload.toFixed(2)}kg 포함`} />
-          </div>
+        <div className="results-panel" style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
+          <div className="result-overview" style={{ padding: "2px 0 0" }}>
+            <div className="overview-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+              gap: 10, marginBottom: 8, padding: "0 2px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                <span style={{ width: 30, height: 30, borderRadius: 8, display: "grid", placeItems: "center",
+                  background: "#eff6ff", color: "#2563eb", flexShrink: 0 }}>
+                  <Activity size={17} strokeWidth={2.4} />
+                </span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>성능 요약</div>
+                  <div style={{ fontSize: 10, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {selectedCombo ? getComboLabel(selectedCombo) : "직접 입력 기준"}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 5, background: decisionStyle.bg,
+                color: decisionStyle.color, border: `1px solid ${decisionStyle.soft}`, borderRadius: 999,
+                padding: "5px 9px", fontSize: 11, fontWeight: 800, whiteSpace: "nowrap" }}>
+                <DecisionIcon size={13} strokeWidth={2.7} />
+                {decisionSummary.title}
+              </div>
+            </div>
 
-          <div style={{ display: "flex", gap: 8 }}>
-            <SmallCard label="순소비전력" value={r.tW} unit="W" />
-            <SmallCard label="배터리 에너지" value={r.battWh} unit="Wh" />
-            <SmallCard label={`로터당 추력 (×${p.rotors})`} value={r.tow / p.rotors} unit="kgf" />
-            <SmallCard label="배터리 방전부하" value={batteryLoadPct} unit="%" />
+            <div className="hero-metrics" style={{ display: "flex", gap: 10 }}>
+              <BigNum label={applyCalibration && flightLogs.length ? "보정 비행시간 (90%)" : "예상 비행시간 (90%)"}
+                value={shown90.toFixed(1)} unit="분" color={tc} border featured
+                sub={`${tableCalc ? "추력표" : "물리식"} 기준: ${estimate90.toFixed(1)}분 · 100%: ${(shown90 / 0.9).toFixed(1)}분`} />
+              <BigNum label="이륙중량 (TOW)" value={towDisplay.toFixed(2)} unit="kg" color="#1e293b" border
+                sub={`임무장비: ${eqPayload.toFixed(2)}kg 포함`} />
+            </div>
+
+            <div className="metric-row" style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <SmallCard label="순소비전력" value={r.tW} unit="W" />
+              <SmallCard label="배터리 에너지" value={r.battWh} unit="Wh" />
+              <SmallCard label={`로터당 추력 (×${p.rotors})`} value={r.tow / p.rotors} unit="kgf" />
+              <SmallCard label="배터리 방전부하" value={batteryLoadPct} unit="%" />
+            </div>
           </div>
 
           {selectedCombo && tableCalc && (
-            <div style={{ background: "white", borderRadius: 10, border: "1px solid #dbeafe", padding: "10px 14px" }}>
+            <div className="panel-card thrust-panel" style={{ background: "white", borderRadius: 10, border: "1px solid #dbeafe", padding: "10px 14px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 700, color: "#1e3a8a" }}>제조사 추력표 기준</div>
                   <div style={{ fontSize: 10, color: "#64748b" }}>{getComboLabel(selectedCombo)}</div>
                 </div>
                 <a href={selectedCombo.sourceUrl} target="_blank" rel="noreferrer"
-                  style={{ fontSize: 10, color: "#2563eb", textDecoration: "none", whiteSpace: "nowrap" }}>
+                  style={{ fontSize: 10, color: "#2563eb", textDecoration: "none", whiteSpace: "nowrap",
+                    display: "inline-flex", alignItems: "center", gap: 3 }}>
                   {selectedCombo.maker} 자료
+                  <ExternalLink size={10} />
                 </a>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
+              <div className="thrust-metric-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
                 <SmallCard label="추력표 비행시간 (90%)" value={tableCalc.m90} unit="분" />
                 <SmallCard label="예상 스로틀" value={tableCalc.throttle} unit="%" />
                 <SmallCard label="로터당 전류" value={tableCalc.currentA} unit="A" />
@@ -669,7 +818,7 @@ export default function App() {
             </div>
           )}
 
-          <div style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0", padding: "10px 14px" }}>
+          <div className="panel-card decision-panel" style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0", padding: "10px 14px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#334155" }}>조합 판정</div>
@@ -682,15 +831,28 @@ export default function App() {
                 방전부하 {batteryLoadPct.toFixed(0)}%
               </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 6 }}>
+            <div className="decision-summary-strip" style={{ background: decisionStyle.bg, border: `1px solid ${decisionStyle.soft}`,
+              borderRadius: 8, padding: "9px 10px", display: "grid", gridTemplateColumns: "24px 1fr", gap: 8,
+              alignItems: "center", marginBottom: 8 }}>
+              <span style={{ width: 24, height: 24, borderRadius: 6, background: "white", color: decisionStyle.color,
+                display: "grid", placeItems: "center" }}>
+                <DecisionIcon size={14} strokeWidth={2.7} />
+              </span>
+              <span>
+                <span style={{ display: "block", color: "#0f172a", fontSize: 13, fontWeight: 800 }}>{decisionSummary.title}</span>
+                <span style={{ display: "block", color: "#475569", fontSize: 11, lineHeight: 1.4 }}>{decisionSummary.detail}</span>
+              </span>
+            </div>
+            <div className="decision-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 6 }}>
               {decisionItems.map((item, i) => {
-                const color = item.level === "danger" ? "#dc2626" : item.level === "warning" ? "#b45309" : item.level === "ok" ? "#047857" : "#475569";
-                const bg = item.level === "danger" ? "#fef2f2" : item.level === "warning" ? "#fffbeb" : item.level === "ok" ? "#ecfdf5" : "#f8fafc";
-                const mark = item.level === "danger" ? "!" : item.level === "warning" ? "!" : item.level === "ok" ? "✓" : "i";
+                const { color, bg, Icon } = LEVEL_META[item.level] || LEVEL_META.info;
+                const ItemIcon = Icon || Info;
                 return (
                   <div key={`${item.title}-${i}`} style={{ background: bg, border: `1px solid ${color}22`, borderRadius: 8, padding: "7px 9px",
                     display: "grid", gridTemplateColumns: "18px 1fr", gap: 6, alignItems: "start" }}>
-                    <span style={{ color, fontSize: 12, fontWeight: 900, lineHeight: "16px", textAlign: "center" }}>{mark}</span>
+                    <span style={{ color, lineHeight: "16px", textAlign: "center", display: "grid", placeItems: "center" }}>
+                      <ItemIcon size={13} strokeWidth={2.7} />
+                    </span>
                     <span>
                       <span style={{ display: "block", color: "#1e293b", fontSize: 11, fontWeight: 700 }}>{item.title}</span>
                       <span style={{ display: "block", color: "#64748b", fontSize: 10, lineHeight: 1.35 }}>{item.detail}</span>
@@ -701,58 +863,70 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0", padding: "10px 14px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+          <div className="panel-card calibration-panel" style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0", padding: "10px 14px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: showCalibrationDetails ? 8 : 0 }}>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#334155" }}>실측 보정</div>
                 <div style={{ fontSize: 10, color: "#94a3b8" }}>
                   평균 보정계수 {calibrationFactor.toFixed(2)}× · 기록 {flightLogs.length}개
                 </div>
               </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#475569", whiteSpace: "nowrap", cursor: "pointer" }}>
-                <input type="checkbox" checked={applyCalibration} onChange={e => setApplyCalibration(e.target.checked)}
-                  disabled={!flightLogs.length} style={{ accentColor: "#0f766e", width: 14, height: 14 }} />
-                보정 적용
-              </label>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 92px 72px", gap: 6, alignItems: "center", marginBottom: 8 }}>
-              <input type="text" value={logName} placeholder="테스트명"
-                onChange={e => setLogName(e.target.value)}
-                style={{ minWidth: 0, border: "1px solid #cbd5e1", borderRadius: 6, padding: "5px 7px", fontSize: 12, outline: "none", background: "#f8fafc" }} />
-              <input type="number" value={measuredMin} placeholder="실측 분"
-                onChange={e => setMeasuredMin(e.target.value)}
-                style={{ border: "1px solid #cbd5e1", borderRadius: 6, padding: "5px 7px", fontSize: 12, textAlign: "right", outline: "none", background: "#f8fafc" }} />
-              <button onClick={addFlightLog}
-                style={{ background: "#0f766e", color: "white", border: "none", borderRadius: 6, padding: "6px 8px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-                기록
-              </button>
-            </div>
-
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 11, color: "#475569", marginBottom: flightLogs.length ? 8 : 0 }}>
-              <span>현재 기준 추정 <b>{estimate90.toFixed(1)}분</b></span>
-              <span>보정 후 <b>{calibrated90.toFixed(1)}분</b></span>
-              <span>현재 TOW <b>{r.tow.toFixed(2)}kg</b></span>
-            </div>
-
-            {flightLogs.length > 0 && (
-              <div style={{ display: "grid", gap: 4, maxHeight: 118, overflowY: "auto" }}>
-                {flightLogs.map(log => (
-                  <div key={log.id} style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: 8, alignItems: "center",
-                    borderTop: "1px solid #f1f5f9", paddingTop: 4, fontSize: 10, color: "#64748b" }}>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{log.name} · {log.battery}</span>
-                    <span>예상 {log.estimatedMin.toFixed(1)}분</span>
-                    <span style={{ color: "#0f766e", fontWeight: 700 }}>실측 {log.measuredMin.toFixed(1)}분</span>
-                    <button onClick={() => removeFlightLog(log.id)} title="삭제"
-                      style={{ background: "none", border: "none", color: "#cbd5e1", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
-                  </div>
-                ))}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#475569", whiteSpace: "nowrap", cursor: flightLogs.length ? "pointer" : "default" }}>
+                  <input type="checkbox" checked={applyCalibration} onChange={e => setApplyCalibration(e.target.checked)}
+                    disabled={!flightLogs.length} style={{ accentColor: "#0f766e", width: 14, height: 14 }} />
+                  보정 적용
+                </label>
+                <button onClick={() => setCalibrationOpen(open => !open)}
+                  style={{ background: showCalibrationDetails ? "#f8fafc" : "#0f766e", color: showCalibrationDetails ? "#475569" : "white",
+                    border: showCalibrationDetails ? "1px solid #cbd5e1" : "none", borderRadius: 6, padding: "5px 9px",
+                    fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+                  {showCalibrationDetails ? "접기" : "기록 추가"}
+                </button>
               </div>
+            </div>
+
+            {showCalibrationDetails && (
+              <>
+                <div className="calibration-form" style={{ display: "grid", gridTemplateColumns: "1fr 92px 72px", gap: 6, alignItems: "center", marginBottom: 8 }}>
+                  <input type="text" value={logName} placeholder="테스트명"
+                    onChange={e => setLogName(e.target.value)}
+                    style={{ minWidth: 0, border: "1px solid #cbd5e1", borderRadius: 6, padding: "5px 7px", fontSize: 12, outline: "none", background: "#f8fafc" }} />
+                  <input type="number" value={measuredMin} placeholder="실측 분"
+                    onChange={e => setMeasuredMin(e.target.value)}
+                    style={{ border: "1px solid #cbd5e1", borderRadius: 6, padding: "5px 7px", fontSize: 12, textAlign: "right", outline: "none", background: "#f8fafc" }} />
+                  <button onClick={addFlightLog}
+                    style={{ background: "#0f766e", color: "white", border: "none", borderRadius: 6, padding: "6px 8px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                    기록
+                  </button>
+                </div>
+
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 11, color: "#475569", marginBottom: flightLogs.length ? 8 : 0 }}>
+                  <span>현재 기준 추정 <b>{estimate90.toFixed(1)}분</b></span>
+                  <span>보정 후 <b>{calibrated90.toFixed(1)}분</b></span>
+                  <span>현재 TOW <b>{r.tow.toFixed(2)}kg</b></span>
+                </div>
+
+                {flightLogs.length > 0 && (
+                  <div style={{ display: "grid", gap: 4, maxHeight: 118, overflowY: "auto" }}>
+                    {flightLogs.map(log => (
+                      <div key={log.id} style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: 8, alignItems: "center",
+                        borderTop: "1px solid #f1f5f9", paddingTop: 4, fontSize: 10, color: "#64748b" }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{log.name} · {log.battery}</span>
+                        <span>예상 {log.estimatedMin.toFixed(1)}분</span>
+                        <span style={{ color: "#0f766e", fontWeight: 700 }}>실측 {log.measuredMin.toFixed(1)}분</span>
+                        <button onClick={() => removeFlightLog(log.id)} title="삭제"
+                          style={{ background: "none", border: "none", color: "#cbd5e1", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
 
           {/* weight bar */}
-          <div style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0", padding: "8px 14px" }}>
+          <div className="panel-card weight-panel" style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0", padding: "8px 14px" }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 4 }}>
               중량 구성 — 총 {towDisplay.toFixed(2)} kg
             </div>
@@ -778,15 +952,22 @@ export default function App() {
 
           {/* chart tabs */}
           <div style={{ display: "flex", gap: 4 }}>
-            {[{ id: "curve", label: "📈 페이로드 vs 비행시간" }, { id: "scenario", label: "📊 장비 누적 비교" }].map(t => (
+            {[{ id: "curve", label: "페이로드 vs 비행시간", Icon: LineChart }, { id: "scenario", label: "장비 누적 비교", Icon: BarChart3 }].map(t => {
+              const TabIcon = t.Icon;
+              return (
               <button key={t.id} onClick={() => setTab(t.id)}
                 style={{ padding: "5px 14px", fontSize: 12, fontWeight: tab === t.id ? 700 : 400,
                   border: "none", borderBottom: tab === t.id ? "2px solid #3b82f6" : "2px solid transparent",
-                  background: "none", cursor: "pointer", color: tab === t.id ? "#1e293b" : "#94a3b8" }}>{t.label}</button>
-            ))}
+                  background: "none", cursor: "pointer", color: tab === t.id ? "#1e293b" : "#94a3b8",
+                  display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <TabIcon size={14} strokeWidth={2.2} />
+                {t.label}
+              </button>
+              );
+            })}
           </div>
 
-          <div style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0", padding: "12px 14px 6px", flex: 1, minHeight: 260 }}>
+          <div className="panel-card chart-panel" style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0", padding: "12px 14px 6px", flex: 1, minHeight: 260 }}>
             {tab === "curve" ? (
               <>
                 <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>
@@ -843,10 +1024,13 @@ export default function App() {
                 )}
                 {cumData.length > 1 && (
                   <div style={{ marginTop: 6, padding: "8px 12px", background: "#fef3c7", borderRadius: 8,
-                    fontSize: 11, color: "#92400e", lineHeight: 1.5 }}>
-                    💡 기본 기체 대비 전체 장비 탑재 시 비행시간{" "}
-                    <b>{((1 - cumData[cumData.length - 1].time / Math.max(cumData[0].time, 0.01)) * 100).toFixed(0)}%</b> 감소
-                    &ensp;|&ensp;이륙중량 {cumData[0].tow}kg → {cumData[cumData.length - 1].tow}kg
+                    fontSize: 11, color: "#92400e", lineHeight: 1.5, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <Info size={13} strokeWidth={2.4} style={{ flexShrink: 0 }} />
+                    <span>
+                      기본 기체 대비 전체 장비 탑재 시 비행시간{" "}
+                      <b>{((1 - cumData[cumData.length - 1].time / Math.max(cumData[0].time, 0.01)) * 100).toFixed(0)}%</b> 감소
+                      &ensp;|&ensp;이륙중량 {cumData[0].tow}kg → {cumData[cumData.length - 1].tow}kg
+                    </span>
                   </div>
                 )}
               </>
@@ -854,9 +1038,10 @@ export default function App() {
           </div>
 
           {/* physics row */}
-          <div style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0",
+          <div className="physics-strip" style={{ background: "white", borderRadius: 10, border: "1px solid #e2e8f0",
             padding: "8px 14px", display: "flex", gap: 14, flexWrap: "wrap" }}>
             {[
+              ["물리 모델", "Momentum Theory", ""],
               ["유도속도", r.vi.toFixed(2), "m/s"],
               ["디스크 면적", r.A.toFixed(4), "m²"],
               ["디스크 로딩", (r.T / Math.max(r.A, 0.001)).toFixed(1), "N/m²"],
