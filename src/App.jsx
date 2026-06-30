@@ -14,7 +14,6 @@ import {
   ExternalLink,
   Info,
   LineChart,
-  Plane,
   Plus,
   RotateCcw,
   Settings2,
@@ -25,6 +24,9 @@ import {
   Zap
 } from "lucide-react";
 import { getComboLabel, interpolateByThrust, loadMotorPresetCsv } from "./data/motorData";
+import sentieryIcon from "../sentiery-icon.png";
+import sentieryLogoEn from "../sentiery-logo-en.png";
+import sentieryMark from "../sentiery-mark.png";
 
 const G = 9.81;
 const RHO = 1.225;
@@ -40,6 +42,7 @@ const INIT = {
 const INIT_BATT = { cells: 4, mah: 5000, kg: 0.5, cRate: 20 };
 const INIT_ESC = { kg: 0.021, continuousA: 20, maxA: 30, cellMin: 3, cellMax: 4 };
 const INIT_SOLAR = { on: false, kg: 0.5, watts: 0, weatherPct: 70 };
+const INIT_DIRECT_MOTOR = { cells: 4, thrustN50: 0, powerW50: 0 };
 const LOG_STORAGE_KEY = "drone-flight-test-logs-v1";
 
 const STATUS = {
@@ -232,6 +235,7 @@ export default function App() {
   const [motorDataError, setMotorDataError] = useState("");
   const [motorMaker, setMotorMaker] = useState("");
   const [comboId, setComboId] = useState("");
+  const [directMotor, setDirectMotor] = useState(INIT_DIRECT_MOTOR);
   const [logName, setLogName] = useState("");
   const [measuredMin, setMeasuredMin] = useState("");
   const [applyCalibration, setApplyCalibration] = useState(false);
@@ -249,6 +253,7 @@ export default function App() {
   const setB = useCallback((k, v) => setBatt(prev => ({ ...prev, [k]: isNaN(v) ? prev[k] : v })), []);
   const setE = useCallback((k, v) => setEsc(prev => ({ ...prev, [k]: isNaN(v) ? prev[k] : v })), []);
   const setS = useCallback((k, v) => setSolar(prev => ({ ...prev, [k]: isNaN(v) ? prev[k] : v })), []);
+  const setD = useCallback((k, v) => setDirectMotor(prev => ({ ...prev, [k]: isNaN(v) ? prev[k] : v })), []);
 
   const battV = batt.cells * CELL_V;
   const battWh = battV * batt.mah / 1000;
@@ -295,31 +300,67 @@ export default function App() {
       voltageMismatch: batt.cells !== selectedCombo.cells
     };
   }, [selectedCombo, r.tow, p.rotors, p.avW, eqPower, solarW, batt.mah, battWh, battV, batt.cells, esc.continuousA]);
-  const estimate90 = tableCalc?.m90 || r.m90;
-  const estimatedBatteryCurrentA = tableCalc?.batteryCurrentA || (battV > 0 ? r.tW / battV : 0);
+  const directSpecCalc = useMemo(() => {
+    if (selectedCombo || directMotor.thrustN50 <= 0 || directMotor.powerW50 <= 0) return null;
+    const requiredThrustN = (r.tow * G) / Math.max(p.rotors, 1);
+    const thrustRatio = requiredThrustN / Math.max(directMotor.thrustN50, 0.001);
+    const throttle = 50 * Math.sqrt(Math.max(thrustRatio, 0));
+    const powerPerRotorW = directMotor.powerW50 * Math.pow(Math.max(thrustRatio, 0), 1.5);
+    const grossPowerW = powerPerRotorW * p.rotors + p.avW + eqPower;
+    const totalPowerW = Math.max(grossPowerW - solarW, 1);
+    const batteryCurrentA = battV > 0 ? totalPowerW / battV : 0;
+    const currentA = battV > 0 ? powerPerRotorW / battV : 0;
+    const maxThrustN = directMotor.thrustN50 * 4;
+    const mFull = totalPowerW > 0 ? (battWh / totalPowerW) * 60 : 0;
+    return {
+      source: "direct50",
+      throttle,
+      powerW: powerPerRotorW,
+      currentA,
+      requiredThrustN,
+      requiredThrustG: (requiredThrustN / G) * 1000,
+      motorCurrentA: currentA * p.rotors,
+      batteryCurrentA,
+      grossPowerW,
+      totalPowerW,
+      mFull,
+      m90: mFull * 0.9,
+      thrustMarginPct: ((maxThrustN - requiredThrustN) / Math.max(requiredThrustN, 0.001)) * 100,
+      escMarginPct: ((esc.continuousA - currentA) / Math.max(currentA, 0.01)) * 100,
+      limited: requiredThrustN > maxThrustN ? "high" : null,
+      voltageMismatch: directMotor.cells > 0 && directMotor.cells !== batt.cells
+    };
+  }, [selectedCombo, directMotor, r.tow, p.rotors, p.avW, eqPower, solarW, battV, battWh, batt.cells, esc.continuousA]);
+  const motorCalc = tableCalc || directSpecCalc;
+  const estimate90 = motorCalc?.m90 || r.m90;
+  const estimatedBatteryCurrentA = motorCalc?.batteryCurrentA || (battV > 0 ? r.tW / battV : 0);
   const batteryLoadPct = batteryMaxCurrentA > 0
     ? (estimatedBatteryCurrentA / batteryMaxCurrentA) * 100
     : 0;
-  const hoverThrottle = tableCalc?.throttle;
+  const hoverThrottle = motorCalc?.throttle;
   const decisionItems = useMemo(() => {
     const items = [];
     const add = (level, title, detail) => items.push({ level, title, detail });
 
-    if (selectedCombo && tableCalc) {
-      if (tableCalc.limited === "high") add("danger", "추력 부족", "요구 추력이 제조사 추력표 최대값을 넘습니다.");
-      else if (tableCalc.thrustMarginPct < 30) add("warning", "추력 여유 낮음", `추력 여유가 ${tableCalc.thrustMarginPct.toFixed(0)}%입니다.`);
-      else add("ok", "추력 여유 충분", `추력 여유 ${tableCalc.thrustMarginPct.toFixed(0)}%`);
+    if (motorCalc) {
+      const sourceName = selectedCombo ? "제조사 추력표" : "50% 기준 입력값";
+      if (motorCalc.limited === "high") add("danger", "추력 부족", `요구 추력이 ${sourceName}으로 추정한 최대 추력을 넘습니다.`);
+      else if (motorCalc.thrustMarginPct < 30) add("warning", "추력 여유 낮음", `추력 여유가 ${motorCalc.thrustMarginPct.toFixed(0)}%입니다.`);
+      else add("ok", "추력 여유 충분", `추력 여유 ${motorCalc.thrustMarginPct.toFixed(0)}%`);
 
-      if (tableCalc.escMarginPct < 20) add("danger", "ESC 연속전류 여유 부족", `ESC 여유가 ${tableCalc.escMarginPct.toFixed(0)}%입니다.`);
-      else if (tableCalc.escMarginPct < 50) add("warning", "ESC 연속전류 여유 확인", `ESC 여유 ${tableCalc.escMarginPct.toFixed(0)}%`);
-      else add("ok", "ESC 전류 여유 충분", `ESC 여유 ${tableCalc.escMarginPct.toFixed(0)}%`);
+      if (motorCalc.escMarginPct < 20) add("danger", "ESC 연속전류 여유 부족", `ESC 여유가 ${motorCalc.escMarginPct.toFixed(0)}%입니다.`);
+      else if (motorCalc.escMarginPct < 50) add("warning", "ESC 연속전류 여유 확인", `ESC 여유 ${motorCalc.escMarginPct.toFixed(0)}%`);
+      else add("ok", "ESC 전류 여유 충분", `ESC 여유 ${motorCalc.escMarginPct.toFixed(0)}%`);
 
       if (hoverThrottle >= 75) add("warning", "호버 스로틀 높음", `예상 호버 스로틀 ${hoverThrottle.toFixed(0)}%`);
       else if (hoverThrottle) add("ok", "호버 스로틀 양호", `예상 호버 스로틀 ${hoverThrottle.toFixed(0)}%`);
 
-      if (tableCalc.voltageMismatch) add("warning", "추력표 전압 불일치", "배터리 전압과 선택한 추력표 전압이 다릅니다.");
+      if (motorCalc.voltageMismatch) {
+        add("warning", selectedCombo ? "추력표 전압 불일치" : "시험 전압 불일치",
+          selectedCombo ? "배터리 전압과 선택한 추력표 전압이 다릅니다." : "배터리 셀 수와 입력한 제조사 시험 셀 수가 다릅니다.");
+      }
     } else {
-      add("info", "추력표 미선택", "모터/프롭 프리셋을 선택하면 추력, ESC, 스로틀 판정이 더 정확해집니다.");
+      add("info", "모터 성능 기준 미입력", "추력표를 선택하거나 제조사 50% 추력/전력을 입력하면 판정이 더 정확해집니다.");
     }
 
     if (batteryMaxCurrentA <= 0) add("warning", "배터리 C-rate 확인 필요", "배터리 C-rate가 0이거나 비어 있습니다.");
@@ -330,7 +371,7 @@ export default function App() {
     if (r.tW <= 1 && solarW > 0) add("warning", "발전량 과대 가능", "태양전지 발전량이 소비전력을 거의 상쇄합니다. 실제 조건을 확인하세요.");
 
     return items;
-  }, [selectedCombo, tableCalc, hoverThrottle, batteryMaxCurrentA, estimatedBatteryCurrentA, batteryLoadPct, r.tW, solarW]);
+  }, [selectedCombo, motorCalc, hoverThrottle, batteryMaxCurrentA, estimatedBatteryCurrentA, batteryLoadPct, r.tW, solarW]);
   const decisionSummary = useMemo(() => {
     if (decisionItems.some(item => item.level === "danger")) {
       return {
@@ -349,8 +390,8 @@ export default function App() {
     if (decisionItems.some(item => item.level === "info")) {
       return {
         level: "info",
-        title: "추력표 선택 권장",
-        detail: "제조사 추력표를 선택하면 스로틀, 전류, 추력 여유 판정이 더 정확해집니다."
+        title: "모터 성능 입력 권장",
+        detail: "제조사 추력표 또는 50% 기준값을 입력하면 스로틀, 전류, 추력 여유 판정이 더 정확해집니다."
       };
     }
     return {
@@ -372,6 +413,15 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(flightLogs));
   }, [flightLogs]);
+
+  useEffect(() => {
+    const currentIcon = document.querySelector("link[rel~='icon']");
+    const favicon = currentIcon || document.createElement("link");
+    favicon.rel = "icon";
+    favicon.type = "image/png";
+    favicon.href = sentieryIcon;
+    if (!currentIcon) document.head.appendChild(favicon);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -450,7 +500,7 @@ export default function App() {
       estimatedMin: +estimate90.toFixed(2),
       towKg: +r.tow.toFixed(3),
       battery: `${batt.cells}S ${(batt.mah / 1000).toFixed(1)}Ah`,
-      combo: selectedCombo ? getComboLabel(selectedCombo) : "직접 입력",
+      combo: selectedCombo ? getComboLabel(selectedCombo) : directSpecCalc ? "직접 입력 50% 스펙 기준" : "직접 입력",
       createdAt: new Date().toISOString()
     };
     setFlightLogs(prev => [entry, ...prev].slice(0, 12));
@@ -478,6 +528,7 @@ export default function App() {
     setBatt(INIT_BATT);
     setEsc(INIT_ESC);
     setSolar(INIT_SOLAR);
+    setDirectMotor(INIT_DIRECT_MOTOR);
     setEquip(INIT_EQUIP);
     setVehiclePresetId("holybro-x500-v2");
     const defaultCombo = motorCombos.find(combo => combo.id === DEFAULT_MOTOR_COMBO_ID);
@@ -506,7 +557,7 @@ export default function App() {
     currentPresetName,
     `${p.rotors}로터`,
     `${batt.cells}S ${batt.mah.toLocaleString()}mAh`,
-    selectedCombo ? `${selectedCombo.maker} 추력표` : "직접 입력 추력"
+    selectedCombo ? `${selectedCombo.maker} 추력표` : directSpecCalc ? "50% 스펙 기준" : "직접 입력 추력"
   ];
 
   return (
@@ -516,7 +567,9 @@ export default function App() {
         display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
         <div style={{ minWidth: 0 }}>
           <h1 className="app-title" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 18, fontWeight: 700, margin: 0, letterSpacing: 0 }}>
-            <Plane size={20} strokeWidth={2.4} />
+            <span className="brand-icon-frame">
+              <img src={sentieryIcon} alt="" className="brand-icon" />
+            </span>
             멀티콥터 비행시간 추정기
           </h1>
           <p className="app-subtitle" style={{ fontSize: 11, opacity: 1, margin: "3px 0 0" }}>호버링 비행시간 · 전류 여유 · 임무장비 영향</p>
@@ -526,12 +579,17 @@ export default function App() {
             ))}
           </div>
         </div>
-        <button className="reset-button" onClick={resetAll} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
-          color: "white", padding: "5px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer",
-          display: "inline-flex", alignItems: "center", gap: 5 }}>
-          <RotateCcw size={13} />
-          초기화
-        </button>
+        <div className="header-actions">
+          <div className="brand-signature" aria-label="Sentiery">
+            <img src={sentieryLogoEn} alt="Sentiery" className="brand-signature-logo" />
+          </div>
+          <button className="reset-button" onClick={resetAll} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
+            color: "white", padding: "5px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer",
+            display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <RotateCcw size={13} />
+            초기화
+          </button>
+        </div>
       </div>
 
       <div className="mobile-quick-summary" style={{ background: "white", border: `1px solid ${decisionStyle.soft}`, borderRadius: 10,
@@ -625,6 +683,24 @@ export default function App() {
             </div>
             <InputRow label="모터+프롭 (개당)" unit="kg" value={p.motorPropKg} onChange={v => set("motorPropKg", v)} max={2} />
             <InputRow label="프롭 직경" unit="inch" value={p.propInch} onChange={v => set("propInch", v)} min={3} max={30} step={0.1} />
+            {!selectedCombo && (
+              <div className="direct-spec-card" style={{ background: "#f8fafc", border: "1px solid #dbeafe", borderRadius: 8,
+                padding: "8px 9px", marginTop: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: "#1e3a8a", marginBottom: 2 }}>제조사 50% 기준 직접 입력</div>
+                <div style={{ fontSize: 10, color: "#64748b", lineHeight: 1.45, marginBottom: 7 }}>
+                  같은 프로펠러/전압 조합에서 50% throttle 행의 값을 넣으면 물리식 대신 이 값을 기준으로 추정합니다.
+                </div>
+                <InputRow label="시험 셀 수" unit="S" value={directMotor.cells} onChange={v => setD("cells", Math.round(v))} min={1} max={14} step={1} width={120} />
+                <InputRow label="50% 추력" unit="N" value={directMotor.thrustN50} onChange={v => setD("thrustN50", v)} max={500} step={0.1} width={120} />
+                <InputRow label="50% 전력" unit="W" value={directMotor.powerW50} onChange={v => setD("powerW50", v)} max={5000} step={1} width={120} />
+                <div style={{ fontSize: 10, color: directSpecCalc ? "#475569" : "#94a3b8", lineHeight: 1.45, marginTop: 4 }}>
+                  현재 필요 추력: <b>{((r.tow * G) / Math.max(p.rotors, 1)).toFixed(2)} N/rotor</b>
+                  {directSpecCalc && (
+                    <span> · 예상 스로틀 <b>{directSpecCalc.throttle.toFixed(0)}%</b> · 로터당 전력 <b>{directSpecCalc.powerW.toFixed(0)} W</b></span>
+                  )}
+                </div>
+              </div>
+            )}
           </Sec>
 
           <Sec title="ESC / 배선" icon={Cpu}>
@@ -758,7 +834,7 @@ export default function App() {
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>성능 요약</div>
                   <div style={{ fontSize: 10, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {selectedCombo ? getComboLabel(selectedCombo) : "직접 입력 기준"}
+                    {selectedCombo ? getComboLabel(selectedCombo) : directSpecCalc ? `${directMotor.cells}S / ${p.propInch}" / 50% 스펙 기준` : "직접 입력 기준"}
                   </div>
                 </div>
               </div>
@@ -773,7 +849,7 @@ export default function App() {
             <div className="hero-metrics" style={{ display: "flex", gap: 10 }}>
               <BigNum label={applyCalibration && flightLogs.length ? "보정 비행시간 (90%)" : "예상 비행시간 (90%)"}
                 value={shown90.toFixed(1)} unit="분" color={tc} border featured
-                sub={`${tableCalc ? "추력표" : "물리식"} 기준: ${estimate90.toFixed(1)}분 · 100%: ${(shown90 / 0.9).toFixed(1)}분`} />
+                sub={`${tableCalc ? "추력표" : directSpecCalc ? "50% 스펙" : "물리식"} 기준: ${estimate90.toFixed(1)}분 · 100%: ${(shown90 / 0.9).toFixed(1)}분`} />
               <BigNum label="이륙중량 (TOW)" value={towDisplay.toFixed(2)} unit="kg" color="#1e293b" border
                 sub={`임무장비: ${eqPayload.toFixed(2)}kg 포함`} />
             </div>
@@ -814,6 +890,38 @@ export default function App() {
                 <span>ESC 여유 <b>{tableCalc.escMarginPct.toFixed(0)}%</b></span>
                 {tableCalc.limited === "high" && <span style={{ color: "#dc2626", fontWeight: 700 }}>요구 추력이 표 최대값을 넘습니다</span>}
                 {tableCalc.voltageMismatch && <span style={{ color: "#b45309", fontWeight: 700 }}>배터리 전압과 추력표 전압이 다릅니다</span>}
+              </div>
+            </div>
+          )}
+
+          {!selectedCombo && directSpecCalc && (
+            <div className="panel-card thrust-panel" style={{ background: "white", borderRadius: 10, border: "1px solid #dbeafe", padding: "10px 14px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1e3a8a" }}>제조사 50% 스펙 기준</div>
+                  <div style={{ fontSize: 10, color: "#64748b" }}>
+                    {directMotor.cells}S / {p.propInch}" prop · 50% 추력 {directMotor.thrustN50.toFixed(1)} N · 50% 전력 {directMotor.powerW50.toFixed(0)} W
+                  </div>
+                </div>
+                <div style={{ fontSize: 10, color: "#64748b", textAlign: "right", lineHeight: 1.4 }}>
+                  T~throttle²<br />P~T^1.5 보정
+                </div>
+              </div>
+              <div className="thrust-metric-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
+                <SmallCard label="50% 기준 비행시간 (90%)" value={directSpecCalc.m90} unit="분" />
+                <SmallCard label="예상 스로틀" value={directSpecCalc.throttle} unit="%" />
+                <SmallCard label="로터당 전력" value={directSpecCalc.powerW} unit="W" />
+                <SmallCard label="추력 여유" value={directSpecCalc.thrustMarginPct} unit="%" />
+              </div>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 8, fontSize: 11, color: "#475569" }}>
+                <span>요구 추력 <b>{directSpecCalc.requiredThrustN.toFixed(2)} N/rotor</b></span>
+                <span>로터당 전류 <b>{directSpecCalc.currentA.toFixed(1)} A</b></span>
+                <span>모터 총전류 <b>{directSpecCalc.motorCurrentA.toFixed(1)} A</b></span>
+                <span>배터리 전류 <b>{directSpecCalc.batteryCurrentA.toFixed(1)} A</b></span>
+                <span>순소비전력 <b>{directSpecCalc.totalPowerW.toFixed(0)} W</b></span>
+                <span>ESC 여유 <b>{directSpecCalc.escMarginPct.toFixed(0)}%</b></span>
+                {directSpecCalc.limited === "high" && <span style={{ color: "#dc2626", fontWeight: 700 }}>요구 추력이 50% 기준 추정 최대값을 넘습니다</span>}
+                {directSpecCalc.voltageMismatch && <span style={{ color: "#b45309", fontWeight: 700 }}>배터리 셀 수와 시험 셀 수가 다릅니다</span>}
               </div>
             </div>
           )}
@@ -1054,6 +1162,21 @@ export default function App() {
           </div>
         </div>
       </div>
+      <footer className="app-footer">
+        <div className="footer-brand">
+          <span className="footer-mark-wrap">
+            <img src={sentieryMark} alt="" className="footer-mark" />
+          </span>
+          <span>
+            <img src={sentieryLogoEn} alt="Sentiery" className="footer-logo" />
+            <span className="footer-product">Multicopter Flight Time Calculator</span>
+          </span>
+        </div>
+        <div className="footer-legal">
+          <span>Copyright © 2026 Sentiery. All rights reserved.</span>
+          <span>Engineering estimate tool for UAV education and mission planning.</span>
+        </div>
+      </footer>
     </div>
   );
 }
