@@ -14,6 +14,7 @@ import {
   ExternalLink,
   Info,
   LineChart,
+  Plane,
   Plus,
   RotateCcw,
   Settings2,
@@ -21,6 +22,7 @@ import {
   Sun,
   Target,
   TriangleAlert,
+  X,
   Zap
 } from "lucide-react";
 import { getComboLabel, interpolateByThrust, loadMotorPresetCsv } from "./data/motorData";
@@ -32,6 +34,7 @@ const G = 9.81;
 const RHO = 1.225;
 const CELL_V = 3.7;
 const DEFAULT_MOTOR_COMBO_ID = "holybro-air2216ii-kv920-4s-t1045ii";
+const ASSET_BASE = import.meta.env.BASE_URL || "./";
 
 const INIT = {
   rotors: 4, frameKg: 0.61, elecKg: 0.3,
@@ -64,6 +67,209 @@ const TIME_COLORS = {
   caution: "#d97706",
   low: "#ea580c",
   danger: "#dc2626"
+};
+
+const VEHICLE_MODE_META = {
+  multicopter: {
+    id: "multicopter",
+    label: "멀티콥터",
+    badge: "사용 가능",
+    title: "멀티콥터 비행시간 추정기",
+    subtitle: "호버링 비행시간 · 전류 여유 · 임무장비 영향",
+    Icon: Activity
+  },
+  fixedwing: {
+    id: "fixedwing",
+    label: "고정익",
+    badge: "베타 계산",
+    title: "고정익 비행시간 추정기",
+    subtitle: "윙스팬 기반 면적 추정 · 항력 · 순항전력",
+    Icon: Plane,
+    focus: "사진 기반 주익 면적 추정부터 함께 설계할 예정입니다.",
+    items: [
+      "Top view 사진 + 실제 윙스팬으로 주익 면적 계산",
+      "수동 외곽선 지정 후 평균 시위와 aspect ratio 추정",
+      "CD0, Oswald 효율, 추진 효율을 이용한 속도별 필요전력 곡선",
+      "실측 비행 로그로 항력계수와 순항전력 보정"
+    ],
+    notes: [
+      ["1단계", "수동 입력 계산기"],
+      ["2단계", "사진 기반 날개 면적 추정"],
+      ["3단계", "실측 로그 보정"]
+    ]
+  },
+  vtol: {
+    id: "vtol",
+    label: "VTOL",
+    badge: "업데이트 예정",
+    title: "VTOL 임무시간 추정기",
+    subtitle: "수직이착륙 · 전환비행 · 순항 구간 통합",
+    Icon: Zap,
+    focus: "멀티콥터 호버 계산과 고정익 순항 계산을 한 임무 프로파일로 연결할 예정입니다.",
+    items: [
+      "이륙/착륙 호버 구간 소비전력 계산",
+      "전환비행 시간과 여유 전력 반영",
+      "고정익 순항 구간 거리, 속도, 전력 계산",
+      "전체 임무 기준 배터리 사용량과 안전 여유 판정"
+    ],
+    notes: [
+      ["입력", "호버 시간, 순항 거리, 순항속도"],
+      ["계산", "멀티콥터 + 고정익 모델 결합"],
+      ["출력", "임무 가능 여부와 배터리 여유"]
+    ]
+  }
+};
+
+const FIXED_WING_PRESETS = [
+  {
+    id: "flightory-stork",
+    maker: "Flightory",
+    name: "Stork",
+    type: "Classic pusher / V-tail",
+    wingspanM: 1.62,
+    lengthM: 1.0,
+    auwMinKg: 1.4,
+    auwMaxKg: 3.1,
+    speedMinKmh: 50,
+    speedMaxKmh: 70,
+    bestCruiseKmh: 56,
+    airframeKg: 0.92,
+    electronicsKg: 0.22,
+    refWeightKg: 2.2,
+    refSpeedKmh: 58,
+    refCruisePowerW: 115,
+    material: "LW-PLA/ASA + PC/PETG",
+    airfoil: "Selig S3021",
+    propulsion: "28XX 모터, 9-10인치 프로펠러, 4S-6S Li-Ion/Li-Po",
+    vtolPack: true,
+    sourceUrl: "https://flightory.com/product/stork/",
+    imageUrl: `${ASSET_BASE}aircraft/stork.jpg`,
+    summary: "안정성과 효율을 강조한 3D 프린터 FPV 고정익으로, pusher 배치와 V-tail 구성을 사용합니다."
+  },
+  {
+    id: "flightory-stallion",
+    maker: "Flightory",
+    name: "Stallion",
+    type: "Twin tractor / V-tail",
+    wingspanM: 1.34,
+    lengthM: 0.99,
+    auwMinKg: 1.5,
+    auwMaxKg: 3.0,
+    speedMinKmh: 60,
+    speedMaxKmh: 70,
+    bestCruiseKmh: 64,
+    airframeKg: 0.95,
+    electronicsKg: 0.26,
+    refWeightKg: 2.45,
+    refSpeedKmh: 65,
+    refCruisePowerW: 60,
+    material: "LW-PLA + PETG",
+    airfoil: "Eppler E205",
+    propulsion: "T-Motor F60/F90 2개, 7x4-7x6 프로펠러, 4S 또는 3S 배터리",
+    vtolPack: true,
+    sourceUrl: "https://flightory.com/product/stallion/",
+    imageUrl: `${ASSET_BASE}aircraft/stallion.jpg`,
+    summary: "쌍발 tractor 구성을 쓰는 고성능 3D 프린터 고정익으로, 모듈형 페이로드 구성을 고려합니다."
+  }
+];
+
+const FIXED_WING_POWERTRAINS = [
+  {
+    id: "stork-2812-910",
+    presetId: "flightory-stork",
+    label: "BrotherHobby Avenger 2812 V5 910KV",
+    shortLabel: "28XX 910KV",
+    motorCount: 1,
+    weightKg: 0.13,
+    maxContinuousW: 700,
+    efficiencyFactor: 1.0,
+    cellMin: 4,
+    cellMax: 6,
+    props: [
+      { id: "stork-9x6", label: "9x6", diameterIn: 9, pitchIn: 6, powerFactor: 1.04, speedBiasKmh: -1 },
+      { id: "stork-10x6", label: "10x6", diameterIn: 10, pitchIn: 6, powerFactor: 1.0, speedBiasKmh: 0 },
+      { id: "stork-10x7", label: "10x7", diameterIn: 10, pitchIn: 7, powerFactor: 0.98, speedBiasKmh: 2 }
+    ]
+  },
+  {
+    id: "stork-generic-28xx",
+    presetId: "flightory-stork",
+    label: "Generic 28XX endurance motor",
+    shortLabel: "28XX 직접 대체",
+    motorCount: 1,
+    weightKg: 0.15,
+    maxContinuousW: 620,
+    efficiencyFactor: 0.94,
+    cellMin: 4,
+    cellMax: 6,
+    props: [
+      { id: "stork-generic-9x6", label: "9x6", diameterIn: 9, pitchIn: 6, powerFactor: 1.08, speedBiasKmh: -1 },
+      { id: "stork-generic-10x6", label: "10x6", diameterIn: 10, pitchIn: 6, powerFactor: 1.03, speedBiasKmh: 0 }
+    ]
+  },
+  {
+    id: "stallion-f60-1750",
+    presetId: "flightory-stallion",
+    label: "T-Motor F60 1750KV ×2",
+    shortLabel: "F60 1750KV ×2",
+    motorCount: 2,
+    weightKg: 0.16,
+    maxContinuousW: 900,
+    efficiencyFactor: 0.98,
+    cellMin: 3,
+    cellMax: 4,
+    props: [
+      { id: "stallion-f60-7x4", label: "7x4", diameterIn: 7, pitchIn: 4, powerFactor: 0.98, speedBiasKmh: -2 },
+      { id: "stallion-f60-7x5", label: "7x5", diameterIn: 7, pitchIn: 5, powerFactor: 1.0, speedBiasKmh: 0 },
+      { id: "stallion-f60-7x6", label: "7x6", diameterIn: 7, pitchIn: 6, powerFactor: 1.06, speedBiasKmh: 2 }
+    ]
+  },
+  {
+    id: "stallion-f90-1300",
+    presetId: "flightory-stallion",
+    label: "T-Motor F90 1300KV ×2",
+    shortLabel: "F90 1300KV ×2",
+    motorCount: 2,
+    weightKg: 0.24,
+    maxContinuousW: 1250,
+    efficiencyFactor: 1.04,
+    cellMin: 3,
+    cellMax: 4,
+    props: [
+      { id: "stallion-f90-7x5", label: "7x5", diameterIn: 7, pitchIn: 5, powerFactor: 0.99, speedBiasKmh: 0 },
+      { id: "stallion-f90-7x6", label: "7x6", diameterIn: 7, pitchIn: 6, powerFactor: 1.02, speedBiasKmh: 2 }
+    ]
+  }
+];
+
+const FIXED_WING_BATTERY_PRESETS = [
+  { id: "3s-10000-liion", label: "3S 10000mAh Li-Ion", cells: 3, mah: 10000, kg: 0.52, cRate: 10 },
+  { id: "4s-6000-lipo", label: "4S 6000mAh LiPo", cells: 4, mah: 6000, kg: 0.58, cRate: 25 },
+  { id: "4s-10000-liion", label: "4S 10000mAh Li-Ion", cells: 4, mah: 10000, kg: 0.68, cRate: 10 },
+  { id: "4s-21000-liion", label: "4S6P 21000mAh Li-Ion", cells: 4, mah: 21000, kg: 1.08, cRate: 8 },
+  { id: "6s-8000-liion", label: "6S 8000mAh Li-Ion", cells: 6, mah: 8000, kg: 0.88, cRate: 10 },
+  { id: "custom", label: "직접 입력", cells: 4, mah: 10000, kg: 0.7, cRate: 10 }
+];
+
+const FIXED_WING_DEFAULTS = {
+  "flightory-stork": {
+    powertrainId: "stork-2812-910",
+    propId: "stork-10x7",
+    batteryId: "6s-8000-liion",
+    payloadKg: 0.25,
+    avionicsW: 8,
+    reservePct: 15,
+    customBattery: { cells: 4, mah: 10000, kg: 0.7, cRate: 10 }
+  },
+  "flightory-stallion": {
+    powertrainId: "stallion-f60-1750",
+    propId: "stallion-f60-7x5",
+    batteryId: "4s-21000-liion",
+    payloadKg: 0.25,
+    avionicsW: 8,
+    reservePct: 15,
+    customBattery: { cells: 4, mah: 21000, kg: 1.08, cRate: 8 }
+  }
 };
 
 const VEHICLE_PRESETS = [
@@ -140,6 +346,68 @@ function calc(p, battWh, payloadKg, extraW, generatedW = 0) {
   const tW = Math.max(grossW - generatedW, 1);
   const mFull = tW > 0 ? (battWh / tW) * 60 : 0;
   return { tow, T, vi, hW, grossW, generatedW, tW, battWh, mFull, m90: mFull * 0.9, mT, eT, A };
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getFixedWingDefaultConfig(presetId) {
+  const fallback = FIXED_WING_DEFAULTS["flightory-stork"];
+  const base = FIXED_WING_DEFAULTS[presetId] || fallback;
+  return {
+    ...base,
+    customBattery: { ...base.customBattery }
+  };
+}
+
+function getFixedWingBattery(config) {
+  if (config.batteryId === "custom") return { ...config.customBattery, id: "custom", label: "직접 입력" };
+  return FIXED_WING_BATTERY_PRESETS.find(item => item.id === config.batteryId) || FIXED_WING_BATTERY_PRESETS[0];
+}
+
+function calcFixedWing(preset, powertrain, prop, battery, config) {
+  const voltage = battery.cells * CELL_V;
+  const batteryWh = voltage * battery.mah / 1000;
+  const usableWh = batteryWh * (1 - clamp(config.reservePct, 0, 60) / 100);
+  const towKg = preset.airframeKg + preset.electronicsKg + powertrain.weightKg + battery.kg + config.payloadKg;
+  const weightBand = Math.max(preset.auwMaxKg - preset.auwMinKg, 0.01);
+  const weightRatio = clamp((towKg - preset.auwMinKg) / weightBand, 0, 1);
+  const speedFromWeight = preset.bestCruiseKmh + (weightRatio - 0.5) * (preset.speedMaxKmh - preset.speedMinKmh) * 0.45;
+  const cruiseKmh = clamp(speedFromWeight + prop.speedBiasKmh, preset.speedMinKmh, preset.speedMaxKmh);
+  const speedRatio = cruiseKmh / Math.max(preset.refSpeedKmh, 1);
+  const speedPowerFactor = 0.58 * Math.pow(speedRatio, 3) + 0.42 / Math.max(speedRatio, 0.45);
+  const weightPowerFactor = Math.pow(towKg / Math.max(preset.refWeightKg, 0.1), 1.15);
+  const propulsionPowerW = preset.refCruisePowerW * weightPowerFactor * speedPowerFactor * prop.powerFactor / Math.max(powertrain.efficiencyFactor, 0.1);
+  const totalPowerW = propulsionPowerW + config.avionicsW;
+  const enduranceMin = totalPowerW > 0 ? (usableWh / totalPowerW) * 60 : 0;
+  const fullEnduranceMin = totalPowerW > 0 ? (batteryWh / totalPowerW) * 60 : 0;
+  const rangeKm = cruiseKmh * enduranceMin / 60;
+  const currentA = voltage > 0 ? totalPowerW / voltage : 0;
+  const batteryMaxCurrentA = (battery.mah / 1000) * battery.cRate;
+  const batteryLoadPct = batteryMaxCurrentA > 0 ? (currentA / batteryMaxCurrentA) * 100 : 0;
+  const propulsionLoadPct = (propulsionPowerW / Math.max(powertrain.maxContinuousW, 1)) * 100;
+  const auwStatus = towKg > preset.auwMaxKg ? "danger" : towKg > preset.auwMaxKg * 0.92 ? "warning" : "ok";
+  const cellStatus = battery.cells < powertrain.cellMin || battery.cells > powertrain.cellMax ? "warning" : "ok";
+  return {
+    towKg,
+    voltage,
+    batteryWh,
+    usableWh,
+    cruiseKmh,
+    propulsionPowerW,
+    totalPowerW,
+    enduranceMin,
+    fullEnduranceMin,
+    rangeKm,
+    currentA,
+    batteryMaxCurrentA,
+    batteryLoadPct,
+    propulsionLoadPct,
+    weightRatio,
+    auwStatus,
+    cellStatus
+  };
 }
 
 /* ── tiny reusable pieces ── */
@@ -220,9 +488,474 @@ const BarTooltip = ({ active, payload }) => {
   );
 };
 
+const ComingSoonPanel = ({ mode, fixedWingPreset, onFixedWingPresetChange }) => {
+  const ModeIcon = mode.Icon || Info;
+  const showFixedWingPreset = mode.id === "fixedwing" && fixedWingPreset;
+  return (
+    <div className="coming-soon-shell">
+      <section className="coming-soon-hero">
+        <div className="coming-soon-icon">
+          <ModeIcon size={24} strokeWidth={2.3} />
+        </div>
+        <div>
+          <div className="coming-soon-kicker">{mode.badge}</div>
+          <h2>{mode.title}</h2>
+          <p>{mode.focus}</p>
+        </div>
+      </section>
+
+      {showFixedWingPreset && (
+        <section className="fixedwing-preset-card">
+          <div className="fixedwing-preset-head">
+            <div>
+              <div className="coming-soon-kicker">대표 3D 프린터 기체 프리셋</div>
+              <h3>Flightory 기준 기체 제원</h3>
+              <p>공개 웹페이지 제원을 기반으로 시작하고, 주익 면적은 다음 단계에서 사진 + 윙스팬으로 추정합니다.</p>
+            </div>
+            <select value={fixedWingPreset.id} onChange={e => onFixedWingPresetChange(e.target.value)}>
+              {FIXED_WING_PRESETS.map(preset => (
+                <option key={preset.id} value={preset.id}>{preset.maker} {preset.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="fixedwing-preset-main">
+            <div className="fixedwing-preset-summary">
+              <span>{fixedWingPreset.maker}</span>
+              <strong>{fixedWingPreset.name}</strong>
+              <p>{fixedWingPreset.summary}</p>
+              <a href={fixedWingPreset.sourceUrl} target="_blank" rel="noreferrer">
+                공식 페이지
+                <ExternalLink size={12} />
+              </a>
+            </div>
+            <div className="fixedwing-spec-grid">
+              {[
+                ["윙스팬", `${(fixedWingPreset.wingspanM * 1000).toFixed(0)} mm`],
+                ["전장", `${(fixedWingPreset.lengthM * 1000).toFixed(0)} mm`],
+                ["중량(AUW)", `${fixedWingPreset.auwMinKg.toFixed(1)}-${fixedWingPreset.auwMaxKg.toFixed(1)} kg`],
+                ["권장 속도", `${fixedWingPreset.speedMinKmh}-${fixedWingPreset.speedMaxKmh} km/h`],
+                ["익형", fixedWingPreset.airfoil],
+                ["주익 면적", "사진 기반 추정 예정"],
+                ["형상", fixedWingPreset.type],
+                ["재질", fixedWingPreset.material]
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <span>{label}</span>
+                  <strong>{value}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="fixedwing-next-row">
+            <span>추진계</span>
+            <strong>{fixedWingPreset.propulsion}</strong>
+          </div>
+        </section>
+      )}
+
+      <div className="coming-soon-grid">
+        <section className="coming-soon-card">
+          <h3>개발 예정 기능</h3>
+          <div className="coming-soon-list">
+            {mode.items.map(item => (
+              <div key={item}>
+                <Check size={14} strokeWidth={2.5} />
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="coming-soon-card">
+          <h3>진행 방향</h3>
+          <div className="coming-soon-notes">
+            {mode.notes.map(([label, value]) => (
+              <div key={label}>
+                <span>{label}</span>
+                <strong>{value}</strong>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+};
+
+const FixedWingPanel = ({
+  mode,
+  fixedWingPreset,
+  onFixedWingPresetChange,
+  powertrains,
+  selectedPowertrain,
+  selectedProp,
+  selectedBattery,
+  config,
+  fixedWingCalc,
+  onPowertrainChange,
+  onPropChange,
+  onBatteryChange,
+  onConfigChange,
+  onCustomBatteryChange
+}) => {
+  const ModeIcon = mode.Icon || Plane;
+  const auwMeta = LEVEL_META[fixedWingCalc.auwStatus] || LEVEL_META.info;
+  const cellMeta = fixedWingCalc.cellStatus === "ok" ? LEVEL_META.ok : LEVEL_META.warning;
+  const batteryMeta = fixedWingCalc.batteryLoadPct >= 70 ? LEVEL_META.warning : LEVEL_META.ok;
+  const loadMeta = fixedWingCalc.propulsionLoadPct >= 65 ? LEVEL_META.warning : LEVEL_META.ok;
+  const AuwIcon = auwMeta.Icon || Info;
+  const CellIcon = cellMeta.Icon || Info;
+  const BatteryIcon = batteryMeta.Icon || Info;
+  const LoadIcon = loadMeta.Icon || Info;
+  const [setupTipOpen, setSetupTipOpen] = useState(false);
+
+  return (
+    <div className="fixedwing-shell">
+      <section className="coming-soon-hero fixedwing-hero">
+        <div className="coming-soon-icon">
+          <ModeIcon size={24} strokeWidth={2.3} />
+        </div>
+        <div>
+          <div className="coming-soon-kicker">베타 계산</div>
+          <h2>{mode.title}</h2>
+          <p>기체 프리셋과 추진계, 프로펠러, 배터리를 선택하면 권장 순항속도와 예상 항속시간을 1차 추정합니다.</p>
+        </div>
+      </section>
+
+      <div className="app-layout fixedwing-layout">
+        <div className="inputs-panel fixedwing-inputs-panel" style={{ width: 280, flexShrink: 0 }}>
+          <Sec title="기체 프리셋" icon={Plane}>
+            <div style={{ marginBottom: 8 }}>
+              <span style={{ display: "block", fontSize: 12, color: "#475569", marginBottom: 4 }}>기체</span>
+              <select value={fixedWingPreset.id} onChange={e => onFixedWingPresetChange(e.target.value)}
+                style={{ width: "100%", border: "1px solid #cbd5e1", borderRadius: 6, padding: "5px 6px",
+                  fontSize: 12, color: "#1e293b", background: "#f8fafc", outline: "none" }}>
+                {FIXED_WING_PRESETS.map(preset => (
+                  <option key={preset.id} value={preset.id}>{preset.maker} {preset.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="fixedwing-input-summary">
+              <img src={fixedWingPreset.imageUrl} alt={`${fixedWingPreset.name} aircraft`} className="fixedwing-preset-thumb" />
+              <div>
+                <strong>{fixedWingPreset.name}</strong>
+                <span>{fixedWingPreset.summary}</span>
+                <a href={fixedWingPreset.sourceUrl} target="_blank" rel="noreferrer">
+                  공식 페이지
+                  <ExternalLink size={10} />
+                </a>
+              </div>
+            </div>
+            <button type="button" className="preset-tip-button" onClick={() => setSetupTipOpen(true)}>
+              <Info size={13} strokeWidth={2.5} />
+              사전 세팅 TIP
+            </button>
+            <div className="fixedwing-mini-spec">
+              <span>윙스팬 <b>{(fixedWingPreset.wingspanM * 1000).toFixed(0)} mm</b></span>
+              <span>전장 <b>{(fixedWingPreset.lengthM * 1000).toFixed(0)} mm</b></span>
+              <span>권장 AUW <b>{fixedWingPreset.auwMinKg.toFixed(1)}-{fixedWingPreset.auwMaxKg.toFixed(1)} kg</b></span>
+              <span>권장 속도 <b>{fixedWingPreset.speedMinKmh}-{fixedWingPreset.speedMaxKmh} km/h</b></span>
+            </div>
+          </Sec>
+
+          <Sec title="추진계 / 프로펠러" icon={Zap}>
+            <div style={{ marginBottom: 8 }}>
+              <span style={{ display: "block", fontSize: 12, color: "#475569", marginBottom: 4 }}>추진계통</span>
+              <select value={selectedPowertrain.id} onChange={e => onPowertrainChange(e.target.value)}
+                style={{ width: "100%", border: "1px solid #cbd5e1", borderRadius: 6, padding: "5px 6px",
+                  fontSize: 12, color: "#1e293b", background: "#f8fafc", outline: "none", marginBottom: 7 }}>
+                {powertrains.map(item => (
+                  <option key={item.id} value={item.id}>{item.label}</option>
+                ))}
+              </select>
+              <span style={{ display: "block", fontSize: 12, color: "#475569", marginBottom: 4 }}>프로펠러</span>
+              <select value={selectedProp.id} onChange={e => onPropChange(e.target.value)}
+                style={{ width: "100%", border: "1px solid #cbd5e1", borderRadius: 6, padding: "5px 6px",
+                  fontSize: 12, color: "#1e293b", background: "#f8fafc", outline: "none" }}>
+                {selectedPowertrain.props.map(prop => (
+                  <option key={prop.id} value={prop.id}>{prop.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="fixedwing-selected-note">
+              <span>모터 {selectedPowertrain.motorCount}개</span>
+              <span>추진계 {selectedPowertrain.weightKg.toFixed(2)}kg</span>
+              <span>{selectedPowertrain.cellMin}-{selectedPowertrain.cellMax}S 권장</span>
+            </div>
+          </Sec>
+
+          <Sec title="배터리" icon={BatteryCharging}>
+            <div style={{ marginBottom: 8 }}>
+              <span style={{ display: "block", fontSize: 12, color: "#475569", marginBottom: 4 }}>배터리 프리셋</span>
+              <select value={config.batteryId} onChange={e => onBatteryChange(e.target.value)}
+                style={{ width: "100%", border: "1px solid #cbd5e1", borderRadius: 6, padding: "5px 6px",
+                  fontSize: 12, color: "#1e293b", background: "#f8fafc", outline: "none" }}>
+                {FIXED_WING_BATTERY_PRESETS.map(item => (
+                  <option key={item.id} value={item.id}>{item.label}</option>
+                ))}
+              </select>
+            </div>
+            {config.batteryId === "custom" && (
+              <div className="fixedwing-custom-battery">
+                <InputRow label="셀 수" unit="S" value={config.customBattery.cells} onChange={v => onCustomBatteryChange("cells", Math.round(v))} min={1} max={12} step={1} />
+                <InputRow label="용량" unit="mAh" value={config.customBattery.mah} onChange={v => onCustomBatteryChange("mah", Math.round(v))} min={100} max={100000} step={100} />
+                <InputRow label="무게" unit="kg" value={config.customBattery.kg} onChange={v => onCustomBatteryChange("kg", v)} min={0} max={5} step={0.01} />
+                <InputRow label="방전률" unit="C" value={config.customBattery.cRate} onChange={v => onCustomBatteryChange("cRate", v)} min={1} max={100} step={1} />
+              </div>
+            )}
+            <div className="fixedwing-selected-note">
+              <span>전압 {fixedWingCalc.voltage.toFixed(1)}V</span>
+              <span>에너지 {fixedWingCalc.batteryWh.toFixed(1)}Wh</span>
+              <span>사용 가능 {fixedWingCalc.usableWh.toFixed(1)}Wh</span>
+            </div>
+          </Sec>
+
+          <Sec title="임무 조건" icon={Target}>
+            <InputRow label="페이로드" unit="kg" value={config.payloadKg} onChange={v => onConfigChange("payloadKg", v)} min={0} max={5} step={0.01} />
+            <InputRow label="전자장비 전력" unit="W" value={config.avionicsW} onChange={v => onConfigChange("avionicsW", v)} min={0} max={200} step={1} />
+            <InputRow label="배터리 예비" unit="%" value={config.reservePct} onChange={v => onConfigChange("reservePct", v)} min={0} max={60} step={1} />
+            <div className="fixedwing-selected-note">
+              <span>AUW {fixedWingCalc.towKg.toFixed(2)}kg</span>
+              <span>예비 {config.reservePct.toFixed(0)}%</span>
+            </div>
+          </Sec>
+
+          <Sec title="고급 설정" icon={Settings2} open={false}>
+            <div className="fixedwing-model-note">
+              <strong>현재 계산 모델</strong>
+              <span>권장속도 범위와 기준 순항전력을 이용한 1차 추정입니다.</span>
+              <span>주익 면적, 항력계수, 실측 로그를 넣으면 이후 보정 정확도를 높일 수 있습니다.</span>
+            </div>
+          </Sec>
+        </div>
+
+        <div className="results-panel fixedwing-results-panel">
+          <div className="result-overview fixedwing-result-panel" style={{ padding: "12px 14px" }}>
+          <div className="fixedwing-card-title">
+            <span>결과</span>
+            <strong>추천 순항속도와 항속시간</strong>
+          </div>
+          <div className="fixedwing-hero-metrics">
+            <BigNum label="추천 순항속도" value={fixedWingCalc.cruiseKmh.toFixed(1)} unit="km/h" color="#0f766e" border featured
+              sub={`${fixedWingPreset.speedMinKmh}-${fixedWingPreset.speedMaxKmh} km/h 권장 범위 내`} />
+            <BigNum label="예상 항속시간" value={fixedWingCalc.enduranceMin.toFixed(0)} unit="분" color="#2563eb" border featured
+              sub={`100% 사용 시 ${fixedWingCalc.fullEnduranceMin.toFixed(0)}분 · 예비 ${config.reservePct.toFixed(0)}%`} />
+          </div>
+
+          <div className="fixedwing-result-grid">
+            <SmallCard label="예상 항속거리" value={fixedWingCalc.rangeKm} unit="km" />
+            <SmallCard label="총 중량(AUW)" value={fixedWingCalc.towKg} unit="kg" />
+            <SmallCard label="순항전력" value={fixedWingCalc.totalPowerW} unit="W" />
+            <SmallCard label="배터리 전류" value={fixedWingCalc.currentA} unit="A" />
+          </div>
+
+          <div className="fixedwing-status-grid">
+            {[
+              [AuwIcon, auwMeta, "AUW", fixedWingCalc.auwStatus === "danger" ? "권장 최대중량 초과" : fixedWingCalc.auwStatus === "warning" ? "권장 최대중량에 가까움" : "권장 범위 내"],
+              [CellIcon, cellMeta, "전압", fixedWingCalc.cellStatus === "ok" ? "추진계 권장 셀 수 적합" : "추진계 권장 셀 수 확인"],
+              [BatteryIcon, batteryMeta, "배터리 부하", `정격의 ${fixedWingCalc.batteryLoadPct.toFixed(0)}% 사용`],
+              [LoadIcon, loadMeta, "추진계 부하", `연속출력의 ${fixedWingCalc.propulsionLoadPct.toFixed(0)}% 순항`]
+            ].map(([Icon, meta, title, detail]) => (
+              <div key={title} style={{ background: meta.bg, borderColor: meta.soft }}>
+                <Icon size={14} strokeWidth={2.7} style={{ color: meta.color }} />
+                <span>
+                  <strong>{title}</strong>
+                  <small>{detail}</small>
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="fixedwing-formula-strip">
+            <span>모델: 권장속도 범위 + 기준 순항전력 보정</span>
+            <span>추진전력 {fixedWingCalc.propulsionPowerW.toFixed(0)}W + 전자장비 {config.avionicsW.toFixed(0)}W</span>
+            <span>정확도는 주익 면적/실측 로그 추가 후 보정 예정</span>
+          </div>
+          </div>
+
+          <section className="fixedwing-preset-card">
+            <div className="fixedwing-preset-head">
+              <div>
+                <div className="coming-soon-kicker">선택 기체 제원</div>
+                <h3>{fixedWingPreset.maker} {fixedWingPreset.name}</h3>
+                <p>공개 웹페이지 제원을 기반으로 시작하고, 주익 면적은 다음 단계에서 사진 + 윙스팬으로 보정합니다.</p>
+              </div>
+            </div>
+            <div className="fixedwing-spec-grid">
+              {[
+                ["윙스팬", `${(fixedWingPreset.wingspanM * 1000).toFixed(0)} mm`],
+                ["전장", `${(fixedWingPreset.lengthM * 1000).toFixed(0)} mm`],
+                ["권장 AUW", `${fixedWingPreset.auwMinKg.toFixed(1)}-${fixedWingPreset.auwMaxKg.toFixed(1)} kg`],
+                ["권장 속도", `${fixedWingPreset.speedMinKmh}-${fixedWingPreset.speedMaxKmh} km/h`],
+                ["익형", fixedWingPreset.airfoil],
+                ["주익 면적", "사진 기반 추정 예정"],
+                ["형상", fixedWingPreset.type],
+                ["재질", fixedWingPreset.material]
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <span>{label}</span>
+                  <strong>{value}</strong>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <div className="coming-soon-grid">
+            <section className="coming-soon-card">
+              <h3>다음 보정 항목</h3>
+              <div className="coming-soon-list">
+                {mode.items.map(item => (
+                  <div key={item}>
+                    <Check size={14} strokeWidth={2.5} />
+                    <span>{item}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="coming-soon-card">
+              <h3>진행 방향</h3>
+              <div className="coming-soon-notes">
+                {mode.notes.map(([label, value]) => (
+                  <div key={label}>
+                    <span>{label}</span>
+                    <strong>{value}</strong>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+      {setupTipOpen && (
+        <div className="setup-tip-backdrop" role="dialog" aria-modal="true" aria-labelledby="fixedwing-setup-tip-title">
+          <div className="setup-tip-modal">
+            <div className="setup-tip-header">
+              <span>Fixed-wing Preset Guide</span>
+              <button type="button" onClick={() => setSetupTipOpen(false)} aria-label="닫기">
+                <X size={18} strokeWidth={2.4} />
+              </button>
+            </div>
+
+            <div className="setup-tip-body">
+              <section className="setup-tip-section">
+                <div className="setup-tip-kicker">① 무게중심(CG) 먼저 맞추기</div>
+                <h2 id="fixedwing-setup-tip-title">초도비행 전 사전 세팅 TIP</h2>
+                <p>
+                  고정익은 항속시간보다 <b>무게중심(CG)</b>이 먼저입니다. 처음에는 매뉴얼의 권장 CG를 기준으로 잡고,
+                  확실하지 않다면 약간 기수가 무거운 상태에서 시작하는 편이 안전합니다.
+                </p>
+                <div className="cg-balance-grid" aria-label="손가락 지지 기준 무게중심 상태">
+                  {[
+                    ["nose", "Nose heavy", "기수가 아래로 많이 내려감", "초도비행은 가능하지만 조종이 둔해질 수 있음", -8, "#2563eb"],
+                    ["good", "Good C.G.", "거의 수평 또는 기수 살짝 아래", "처음 맞춰볼 때 가장 좋은 출발점", 0, "#0f766e"],
+                    ["tail", "Tail heavy", "꼬리가 아래로 내려감", "피치가 예민하고 실속 회복이 어려울 수 있음", 8, "#dc2626"]
+                  ].map(([state, title, subtitle, detail, angle, color]) => (
+                    <div className={`cg-balance-card cg-balance-${state}`} key={state}>
+                      <svg viewBox="0 0 340 152" role="img" aria-label={`${title} 무게중심 확인 그림`}>
+                        <g transform={`rotate(${angle} 170 72)`}>
+                          <path d="M36 66 L195 66 L300 78 L195 90 L36 90 C19 85 19 71 36 66Z" fill="#ffffff" stroke="#334155" strokeWidth="2.2" />
+                          <path d="M104 55 C139 36 207 38 253 62 C191 72 137 72 94 64Z" fill="#ef4444" stroke="#991b1b" strokeWidth="1.4" />
+                          <path d="M205 66 L315 43 L328 53 L227 78 Z" fill="#f8fafc" stroke="#334155" strokeWidth="1.7" />
+                          <path d="M205 90 L315 113 L328 103 L227 78 Z" fill="#f8fafc" stroke="#334155" strokeWidth="1.7" />
+                          <circle cx="38" cy="78" r="7" fill="#0f172a" />
+                          <rect x="78" y="74" width="44" height="10" rx="3" fill="#f59e0b" />
+                          <line x1="144" y1="51" x2="196" y2="51" stroke="#64748b" strokeWidth="1.6" />
+                          <line x1="144" y1="45" x2="144" y2="58" stroke="#64748b" strokeWidth="1.6" />
+                          <line x1="196" y1="45" x2="196" y2="58" stroke="#64748b" strokeWidth="1.6" />
+                          <text x="170" y="43" textAnchor="middle" fontSize="10" fontWeight="800" fill="#475569">C.G. Range</text>
+                          <line x1="138" y1="103" x2="216" y2="103" stroke={color} strokeWidth="5" strokeLinecap="round" />
+                        </g>
+                        <path d="M154 98 C154 89 162 84 170 84 C178 84 186 89 186 98 L186 143 L154 143 Z" fill="#ffd6bf" stroke="#eab08d" strokeWidth="1.5" />
+                        <path d="M155 142 L187 142" stroke="#eab08d" strokeWidth="2" />
+                        <line x1="170" y1="52" x2="170" y2="124" stroke="#0f766e" strokeWidth="2" strokeDasharray="4 4" />
+                        <rect x="128" y="18" width="84" height="25" rx="13" fill={`${color}18`} stroke={color} />
+                        <text x="170" y="35" textAnchor="middle" fontSize="13" fontWeight="900" fill={color}>{title}</text>
+                      </svg>
+                      <strong>{subtitle}</strong>
+                      <span>{detail}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="setup-tip-section">
+                <div className="setup-tip-kicker">② 배터리 위치로 조정</div>
+                <div className="setup-tip-split">
+                  <div>
+                    <h3>기수가 살짝 내려가면 출발점으로 좋습니다</h3>
+                    <p>
+                      손가락이나 CG 스탠드로 권장 CG 위치를 받쳤을 때 기수가 살짝 내려가는 정도를 먼저 목표로 잡습니다.
+                      꼬리가 무거우면 피치가 예민해지고 실속 회복이 어려워질 수 있습니다.
+                    </p>
+                  </div>
+                  <div className="balance-diagram">
+                    <svg viewBox="0 0 360 160" role="img" aria-label="배터리 위치와 무게중심 조정 개념도">
+                      <path d="M40 72 L230 72 L312 86 L230 100 L40 100 C24 94 24 78 40 72Z" fill="#eef2ff" stroke="#475569" strokeWidth="2" />
+                      <rect x="72" y="79" width="68" height="16" rx="4" fill="#f59e0b" />
+                      <text x="106" y="68" textAnchor="middle" fontSize="11" fontWeight="800" fill="#b45309">배터리</text>
+                      <line x1="155" y1="50" x2="155" y2="124" stroke="#0f766e" strokeWidth="2" />
+                      <circle cx="155" cy="86" r="12" fill="#0f766e" />
+                      <text x="155" y="90" textAnchor="middle" fontSize="10" fontWeight="800" fill="#fff">CG</text>
+                      <path d="M85 124 L50 144 L120 144 Z" fill="#cbd5e1" />
+                      <path d="M155 124 L120 144 L190 144 Z" fill="#0f766e" opacity="0.75" />
+                      <path d="M250 124 L215 144 L285 144 Z" fill="#cbd5e1" />
+                      <path d="M88 112 L122 112" stroke="#b45309" strokeWidth="2.5" markerEnd="url(#arrowTip)" />
+                      <defs>
+                        <marker id="arrowTip" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                          <path d="M0 0 L8 4 L0 8 Z" fill="#b45309" />
+                        </marker>
+                      </defs>
+                    </svg>
+                  </div>
+                </div>
+              </section>
+
+              <section className="setup-tip-section">
+                <div className="setup-tip-kicker">③ 초도비행 체크리스트</div>
+                <div className="setup-tip-checkgrid">
+                  {[
+                    ["CG", "권장 CG에서 받쳤을 때 기수가 살짝 아래로"],
+                    ["조종면", "엘리베이터/에일러론/러더 방향 확인"],
+                    ["프로펠러", "회전 방향과 고정 상태 확인"],
+                    ["트림", "초도비행 후 트림이 크면 CG 재확인"],
+                    ["스로틀", "순항은 여유 있게, 이륙은 충분한 출력 확보"],
+                    ["비행장", "넓고 바람이 약한 곳에서 첫 테스트"]
+                  ].map(([label, text]) => (
+                    <div key={label}>
+                      <Check size={15} strokeWidth={2.7} />
+                      <span>
+                        <strong>{label}</strong>
+                        <small>{text}</small>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="setup-tip-section setup-tip-formula">
+                <div>
+                  <strong>나중에 넣을 CG 계산식</strong>
+                  <span>현재 CG 위치 = Σ(부품 무게 × 기준점 거리) / Σ(부품 무게)</span>
+                </div>
+                <p>Stork/Stallion 매뉴얼의 기준 CG 값을 넣으면, 배터리 위치를 얼마나 앞뒤로 옮길지까지 추천할 수 있습니다.</p>
+              </section>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 /* ── main ── */
 
 export default function App() {
+  const [activeMode, setActiveMode] = useState("multicopter");
+  const [fixedWingPresetId, setFixedWingPresetId] = useState("flightory-stork");
+  const [fixedWingConfig, setFixedWingConfig] = useState(() => getFixedWingDefaultConfig("flightory-stork"));
   const [p, setP] = useState(INIT);
   const [batt, setBatt] = useState(INIT_BATT);
   const [esc, setEsc] = useState(INIT_ESC);
@@ -254,6 +987,11 @@ export default function App() {
   const setE = useCallback((k, v) => setEsc(prev => ({ ...prev, [k]: isNaN(v) ? prev[k] : v })), []);
   const setS = useCallback((k, v) => setSolar(prev => ({ ...prev, [k]: isNaN(v) ? prev[k] : v })), []);
   const setD = useCallback((k, v) => setDirectMotor(prev => ({ ...prev, [k]: isNaN(v) ? prev[k] : v })), []);
+  const setFW = useCallback((k, v) => setFixedWingConfig(prev => ({ ...prev, [k]: isNaN(v) ? prev[k] : v })), []);
+  const setFWBattery = useCallback((k, v) => setFixedWingConfig(prev => ({
+    ...prev,
+    customBattery: { ...prev.customBattery, [k]: isNaN(v) ? prev.customBattery[k] : v }
+  })), []);
 
   const battV = batt.cells * CELL_V;
   const battWh = battV * batt.mah / 1000;
@@ -490,6 +1228,20 @@ export default function App() {
       setComboId("");
     }
   };
+  const applyFixedWingPreset = (id) => {
+    setFixedWingPresetId(id);
+    setFixedWingConfig(getFixedWingDefaultConfig(id));
+  };
+  const applyFixedWingPowertrain = (id) => {
+    const powertrain = FIXED_WING_POWERTRAINS.find(item => item.id === id);
+    setFixedWingConfig(prev => ({
+      ...prev,
+      powertrainId: id,
+      propId: powertrain?.props?.[0]?.id || prev.propId
+    }));
+  };
+  const applyFixedWingProp = (id) => setFixedWingConfig(prev => ({ ...prev, propId: id }));
+  const applyFixedWingBattery = (id) => setFixedWingConfig(prev => ({ ...prev, batteryId: id }));
   const addFlightLog = () => {
     const measured = Number(measuredMin);
     if (!measured || measured <= 0) return;
@@ -553,12 +1305,38 @@ export default function App() {
   ];
   const towDisplay = r.tow;
   const currentPresetName = VEHICLE_PRESETS.find(preset => preset.id === vehiclePresetId)?.name || "직접 입력";
-  const headerChips = [
-    currentPresetName,
-    `${p.rotors}로터`,
-    `${batt.cells}S ${batt.mah.toLocaleString()}mAh`,
-    selectedCombo ? `${selectedCombo.maker} 추력표` : directSpecCalc ? "50% 스펙 기준" : "직접 입력 추력"
-  ];
+  const activeModeMeta = VEHICLE_MODE_META[activeMode] || VEHICLE_MODE_META.multicopter;
+  const isMulticopterMode = activeMode === "multicopter";
+  const fixedWingPreset = FIXED_WING_PRESETS.find(preset => preset.id === fixedWingPresetId) || FIXED_WING_PRESETS[0];
+  const fixedWingPowertrains = useMemo(
+    () => FIXED_WING_POWERTRAINS.filter(item => item.presetId === fixedWingPreset.id),
+    [fixedWingPreset.id]
+  );
+  const selectedFixedWingPowertrain = fixedWingPowertrains.find(item => item.id === fixedWingConfig.powertrainId)
+    || fixedWingPowertrains[0]
+    || FIXED_WING_POWERTRAINS[0];
+  const selectedFixedWingProp = selectedFixedWingPowertrain.props.find(prop => prop.id === fixedWingConfig.propId)
+    || selectedFixedWingPowertrain.props[0];
+  const selectedFixedWingBattery = useMemo(() => getFixedWingBattery(fixedWingConfig), [fixedWingConfig]);
+  const fixedWingCalc = useMemo(
+    () => calcFixedWing(fixedWingPreset, selectedFixedWingPowertrain, selectedFixedWingProp, selectedFixedWingBattery, fixedWingConfig),
+    [fixedWingPreset, selectedFixedWingPowertrain, selectedFixedWingProp, selectedFixedWingBattery, fixedWingConfig]
+  );
+  const headerChips = isMulticopterMode
+    ? [
+      currentPresetName,
+      `${p.rotors}로터`,
+      `${batt.cells}S ${batt.mah.toLocaleString()}mAh`,
+      selectedCombo ? `${selectedCombo.maker} 추력표` : directSpecCalc ? "50% 스펙 기준" : "직접 입력 추력"
+    ]
+    : activeMode === "fixedwing"
+      ? [
+        `${fixedWingPreset.maker} ${fixedWingPreset.name}`,
+        selectedFixedWingPowertrain.shortLabel,
+        `${selectedFixedWingBattery.cells}S ${selectedFixedWingBattery.mah.toLocaleString()}mAh`,
+        `추천 ${fixedWingCalc.cruiseKmh.toFixed(0)}km/h · ${fixedWingCalc.enduranceMin.toFixed(0)}분`
+      ]
+      : [activeModeMeta.badge, "기획 중", activeModeMeta.subtitle];
 
   return (
     <div className="app-root" style={{ fontFamily: "'Inter',-apple-system,system-ui,sans-serif", background: "linear-gradient(180deg,#eef7f8 0%,#f8fafc 34%,#eef2f7 100%)", minHeight: "100vh" }}>
@@ -570,9 +1348,9 @@ export default function App() {
             <span className="brand-icon-frame">
               <img src={sentieryIcon} alt="" className="brand-icon" />
             </span>
-            멀티콥터 비행시간 추정기
+            {activeModeMeta.title}
           </h1>
-          <p className="app-subtitle" style={{ fontSize: 11, opacity: 1, margin: "3px 0 0" }}>호버링 비행시간 · 전류 여유 · 임무장비 영향</p>
+          <p className="app-subtitle" style={{ fontSize: 11, opacity: 1, margin: "3px 0 0" }}>{activeModeMeta.subtitle}</p>
           <div className="header-context">
             {headerChips.map(chip => (
               <span className="header-chip" key={chip}>{chip}</span>
@@ -583,15 +1361,34 @@ export default function App() {
           <div className="brand-signature" aria-label="Sentiery">
             <img src={sentieryLogoEn} alt="Sentiery" className="brand-signature-logo" />
           </div>
-          <button className="reset-button" onClick={resetAll} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
-            color: "white", padding: "5px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer",
-            display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <RotateCcw size={13} />
-            초기화
-          </button>
+          {isMulticopterMode && (
+            <button className="reset-button" onClick={resetAll} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
+              color: "white", padding: "5px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer",
+              display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <RotateCcw size={13} />
+              초기화
+            </button>
+          )}
         </div>
       </div>
 
+      <div className="mode-switcher" role="tablist" aria-label="Aircraft calculator mode">
+        {Object.values(VEHICLE_MODE_META).map(mode => {
+          const ModeIcon = mode.Icon;
+          const active = activeMode === mode.id;
+          return (
+            <button key={mode.id} className={`mode-tab${active ? " mode-tab-active" : ""}`}
+              onClick={() => setActiveMode(mode.id)} role="tab" aria-selected={active}>
+              <ModeIcon size={16} strokeWidth={2.3} />
+              <span>{mode.label}</span>
+              <small>{mode.badge}</small>
+            </button>
+          );
+        })}
+      </div>
+
+      {isMulticopterMode ? (
+      <>
       <div className="mobile-quick-summary" style={{ background: "white", border: `1px solid ${decisionStyle.soft}`, borderRadius: 10,
         padding: 12, margin: "8px 8px 0", boxShadow: "0 8px 24px rgba(15,23,42,0.06)" }}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}>
@@ -1162,6 +1959,31 @@ export default function App() {
           </div>
         </div>
       </div>
+      </>
+      ) : activeMode === "fixedwing" ? (
+        <FixedWingPanel
+          mode={activeModeMeta}
+          fixedWingPreset={fixedWingPreset}
+          onFixedWingPresetChange={applyFixedWingPreset}
+          powertrains={fixedWingPowertrains}
+          selectedPowertrain={selectedFixedWingPowertrain}
+          selectedProp={selectedFixedWingProp}
+          selectedBattery={selectedFixedWingBattery}
+          config={fixedWingConfig}
+          fixedWingCalc={fixedWingCalc}
+          onPowertrainChange={applyFixedWingPowertrain}
+          onPropChange={applyFixedWingProp}
+          onBatteryChange={applyFixedWingBattery}
+          onConfigChange={setFW}
+          onCustomBatteryChange={setFWBattery}
+        />
+      ) : (
+        <ComingSoonPanel
+          mode={activeModeMeta}
+          fixedWingPreset={fixedWingPreset}
+          onFixedWingPresetChange={setFixedWingPresetId}
+        />
+      )}
       <footer className="app-footer">
         <div className="footer-brand">
           <span className="footer-mark-wrap">
@@ -1169,7 +1991,7 @@ export default function App() {
           </span>
           <span>
             <img src={sentieryLogoEn} alt="Sentiery" className="footer-logo" />
-            <span className="footer-product">Multicopter Flight Time Calculator</span>
+            <span className="footer-product">UAV Flight Time Calculator</span>
           </span>
         </div>
         <div className="footer-legal">
